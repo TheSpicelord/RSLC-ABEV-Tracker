@@ -2749,3 +2749,28 @@ html.auth-pending main {
 
 .color-net-toss { background: #8e509e; }
 .detail-cell-toss { color: #c795d8; }
+
+/* --- Tables size to content, centered in the sidebar (don't stretch to the
+       width set by the stat cards row) --- */
+.abev-table {
+  width: auto;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.abev-table .abev-name-cell {
+  text-align: center;
+}
+
+/* Keep count/margin columns comfortably sized without stretching */
+.abev-table .abev-count-cell {
+  min-width: 66px;
+  padding-left: 0.55rem;
+  padding-right: 0.55rem;
+}
+
+.abev-table .margin-cell {
+  min-width: 62px;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
