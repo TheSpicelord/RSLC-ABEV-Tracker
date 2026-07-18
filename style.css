@@ -2490,7 +2490,7 @@ html.auth-pending main {
 /* --- Statewide summary cards --- */
 .statewide-stats-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.45rem;
   margin: 0.5rem 0 0.9rem;
 }

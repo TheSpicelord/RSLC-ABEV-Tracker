@@ -35,7 +35,7 @@ if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260718a";
+const BUILD_VERSION = "20260718b";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -293,7 +293,7 @@ function wireEvents() {
       applyFineZoomMode(true);
     }
 
-    if (/^[1-5]$/.test(e.key)) {
+    if (/^[1-4]$/.test(e.key)) {
       const idx = Number(e.key) - 1;
       if (idx < STAT_VIEWS.length) {
         e.preventDefault();
@@ -1514,12 +1514,12 @@ function districtDetailHtml(properties, joinInfo, rec) {
     ], { legendColumns: 3 });
   }
 
-  const sent = statTotals(rec, "sent");
+  const requested = statTotals(rec, "requested");
   const returned = statTotals(rec, "returned");
   const ev = statTotals(rec, "ev");
   const rateLines = [];
-  if (sent && returned && sent.total > 0) {
-    rateLines.push(`AB return rate: <strong>${((returned.total / sent.total) * 100).toFixed(1)}%</strong>`);
+  if (requested && returned && requested.total > 0) {
+    rateLines.push(`AB return rate: <strong>${((returned.total / requested.total) * 100).toFixed(1)}%</strong>`);
   }
   if (voted && ev && voted.total > 0) {
     rateLines.push(`Early vote share of total: <strong>${((ev.total / voted.total) * 100).toFixed(1)}%</strong>`);

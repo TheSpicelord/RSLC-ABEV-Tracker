@@ -19,14 +19,13 @@ export const AUTO_SHAPE_URLS = {
 
 export const ABEV_INDEX_URL = "data/abev/abev_files.json";
 export const ABEV_NATIONAL_URL = "data/abev/national.json";
-export const ABEV_HISTORY_URL = "data/abev/history.json";
+export const ABEV_TIMELINE_URL = "data/abev/timeline.json";
 
-// The five tracked stats. "voted" is calculated client-side as returned + ev.
-export const STAT_VIEWS = ["requested", "sent", "returned", "ev", "voted"];
+// The four tracked stats. "voted" is calculated client-side as returned + ev.
+export const STAT_VIEWS = ["requested", "returned", "ev", "voted"];
 
 export const STAT_LABELS = {
   requested: "ABs Requested",
-  sent: "ABs Sent",
   returned: "ABs Returned",
   ev: "Early Votes",
   voted: "Total Votes",
@@ -34,7 +33,6 @@ export const STAT_LABELS = {
 
 export const STAT_SHORT_LABELS = {
   requested: "Requested",
-  sent: "Sent",
   returned: "Returned",
   ev: "Early Votes",
   voted: "Total Votes",

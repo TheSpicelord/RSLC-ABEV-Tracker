@@ -4,19 +4,26 @@ Morning routine (while connected to the VPN):
 
     python scripts/daily_update.py            # full update + git commit/push
     python scripts/daily_update.py --no-push  # update files only, no git
-    python scripts/daily_update.py --dry-run  # test SQL connection + query, write nothing
+    python scripts/daily_update.py --dry-run  # test SQL connection + queries, write nothing
 
 Configuration lives in scripts/db_config.ini (NOT committed — see
 scripts/db_config.template.ini). Requires: pip install pyodbc
 
-The aggregation query (scripts/sql/abev_district_aggregate.sql) does all the
-heavy lifting server-side and returns only district x stat x party-bucket
-counts, so no individual-level voter data ever reaches this machine or the
-website repo.
+All aggregation happens server-side (GROUP BY district/stat/bucket); only
+summary counts come back, so no individual-level voter data ever reaches this
+machine's repo or the website.
 
-STATUS: skeleton — the SQL template still has <placeholder> column names that
-must be filled in once we confirm the schema of dbo.General_Absentees_2026 and
-the model tables.
+Tracked stats: requested (RequestDate), returned (ReturnDate), ev (EarlyVoted).
+"Total votes" (returned + ev) is computed client-side by the site.
+
+Party buckets come from state model tables (see STATE_MODELS). Voters not
+matched to a model, or in a persuasion/swing segment, count as 'toss'.
+
+Date handling:
+  * requested before Jan 1, 2026 -> timeline bucket "pre2026" (permanent
+    absentee list signups); still counted in district/state totals
+  * returned/ev before Jan 1, 2026, or any date in the future, or NULL ->
+    timeline bucket "unknown"; still counted in totals
 """
 
 import argparse
@@ -30,39 +37,69 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = PROJECT_ROOT / "scripts" / "db_config.ini"
-SQL_PATH = PROJECT_ROOT / "scripts" / "sql" / "abev_district_aggregate.sql"
 OUT_DIR = PROJECT_ROOT / "data" / "abev"
 
-STATS = ("requested", "sent", "returned", "ev")
+ABEV_TABLE = "dbo.General_Absentees_2026"
+STATS = ("requested", "returned", "ev")
 BUCKETS = ("rep", "dem", "toss")
+CYCLE_START = date(2026, 1, 1)
 
-FIPS_TO_ABBR = {
-    "01": "AL", "02": "AK", "04": "AZ", "05": "AR", "06": "CA", "08": "CO",
-    "09": "CT", "10": "DE", "12": "FL", "13": "GA", "15": "HI", "16": "ID",
-    "17": "IL", "18": "IN", "19": "IA", "20": "KS", "21": "KY", "22": "LA",
-    "23": "ME", "24": "MD", "25": "MA", "26": "MI", "27": "MN", "28": "MS",
-    "29": "MO", "30": "MT", "31": "NE", "32": "NV", "33": "NH", "34": "NJ",
-    "35": "NM", "36": "NY", "37": "NC", "38": "ND", "39": "OH", "40": "OK",
-    "41": "OR", "42": "PA", "44": "RI", "45": "SC", "46": "SD", "47": "TN",
-    "48": "TX", "49": "UT", "50": "VT", "51": "VA", "53": "WA", "54": "WV",
-    "55": "WI", "56": "WY",
+# Per-state model configuration. bucket_sql must yield 'rep' / 'dem' / 'toss'
+# for a LEFT-JOINed model row alias `m` (NULL columns when unmatched).
+# When more states come online, add them here. States without their own model
+# will eventually fall back to a national model (not yet wired up).
+STATE_MODELS = {
+    "VA": {
+        "model_table": "dbo.RSLC_VA_R2_Exchange_20250804",
+        "join_col": "dt_regid",
+        "bucket_sql": (
+            "CASE WHEN m.RepublicanFramework_Flag = 1 THEN 'rep' "
+            "WHEN m.DemocratFramework_Flag = 1 THEN 'dem' "
+            "ELSE 'toss' END"  # PersuasionFramework_Flag=1 and unmatched -> toss
+        ),
+    },
+    "WI": {
+        "model_table": "dbo.RGA_WI_ExchangeData_20260131",
+        "join_col": "dt_regid",
+        "bucket_sql": (
+            "CASE WHEN m.universenumber BETWEEN 1 AND 3 THEN 'rep' "
+            "WHEN m.universenumber BETWEEN 6 AND 8 THEN 'dem' "
+            "ELSE 'toss' END"  # 4-5 = swing; unmatched -> toss
+        ),
+    },
+}
+
+# States to pull. RI and AK currently only contain permanent-absentee list
+# signups with no models — ignore until real 2026 general data arrives.
+ACTIVE_STATES = ["VA", "WI"]
+
+ABBR_TO_FIPS = {
+    "AL": "01", "AK": "02", "AZ": "04", "AR": "05", "CA": "06", "CO": "08",
+    "CT": "09", "DE": "10", "FL": "12", "GA": "13", "HI": "15", "ID": "16",
+    "IL": "17", "IN": "18", "IA": "19", "KS": "20", "KY": "21", "LA": "22",
+    "ME": "23", "MD": "24", "MA": "25", "MI": "26", "MN": "27", "MS": "28",
+    "MO": "29", "MT": "30", "NE": "31", "NV": "32", "NH": "33", "NJ": "34",
+    "NM": "35", "NY": "36", "NC": "37", "ND": "38", "OH": "39", "OK": "40",
+    "OR": "41", "PA": "42", "RI": "44", "SC": "45", "SD": "46", "TN": "47",
+    "TX": "48", "UT": "49", "VT": "50", "VA": "51", "WA": "53", "WV": "54",
+    "WI": "55", "WY": "56",
 }
 
 ABBR_TO_NAME = {
-    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
-    "CA": "California", "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware",
-    "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho",
-    "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas",
-    "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
-    "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota",
-    "MS": "Mississippi", "MO": "Missouri", "MT": "Montana", "NE": "Nebraska",
-    "NV": "Nevada", "NH": "New Hampshire", "NJ": "New Jersey",
-    "NM": "New Mexico", "NY": "New York", "NC": "North Carolina",
-    "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma", "OR": "Oregon",
-    "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina",
-    "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah",
-    "VT": "Vermont", "VA": "Virginia", "WA": "Washington",
-    "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming",
+    "VA": "Virginia", "WI": "Wisconsin", "RI": "Rhode Island", "AK": "Alaska",
+    "AL": "Alabama", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
+    "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "FL": "Florida",
+    "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois",
+    "IN": "Indiana", "IA": "Iowa", "KS": "Kansas", "KY": "Kentucky",
+    "LA": "Louisiana", "ME": "Maine", "MD": "Maryland", "MA": "Massachusetts",
+    "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi", "MO": "Missouri",
+    "MT": "Montana", "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire",
+    "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
+    "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio",
+    "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania",
+    "SC": "South Carolina", "SD": "South Dakota", "TN": "Tennessee",
+    "TX": "Texas", "UT": "Utah", "VT": "Vermont", "WA": "Washington",
+    "WV": "West Virginia", "WY": "Wyoming",
 }
 
 
@@ -87,70 +124,122 @@ def connect(cfg):
         f"DATABASE={cfg['database']};"
         f"UID={cfg['username']};"
         f"PWD={cfg['password']};"
-        "TrustServerCertificate=yes;"
+        "Encrypt=yes;TrustServerCertificate=yes;"
     )
     print(f"Connecting to {cfg['server']} / {cfg['database']} ...")
     return pyodbc.connect(conn_str, timeout=30)
 
 
-def run_aggregate_query(conn):
-    sql = SQL_PATH.read_text(encoding="utf-8")
-    if "<" in sql.split("--", 1)[0] or "<voter_key>" in sql:
-        sys.exit(
-            "scripts/sql/abev_district_aggregate.sql still contains <placeholder> column names.\n"
-            "Fill in the real schema before running the daily update."
-        )
-    cursor = conn.cursor()
-    cursor.execute(sql)
-    rows = cursor.fetchall()
-    print(f"Query returned {len(rows):,} aggregate rows.")
-    return rows
-
-
-def normalize_fips(value):
-    digits = "".join(c for c in str(value or "") if c.isdigit())
-    return digits.zfill(2) if digits else ""
+def state_query(model):
+    """One aggregate query per state: counts by district pair, stat, bucket, event date."""
+    return f"""
+WITH scored AS (
+    SELECT
+        a.LegislativeDistrict AS hd,
+        a.SenateDistrict AS sd,
+        a.RequestDate,
+        a.ReturnDate,
+        a.EarlyVoted,
+        {model['bucket_sql']} AS bucket
+    FROM {ABEV_TABLE} a
+    LEFT JOIN {model['model_table']} m
+        ON m.{model['join_col']} = CONVERT(varchar(36), a.RNC_RegID)
+    WHERE a.State = ?
+),
+events AS (
+    SELECT hd, sd, bucket, 'requested' AS stat, RequestDate AS event_date FROM scored WHERE RequestDate IS NOT NULL
+    UNION ALL
+    SELECT hd, sd, bucket, 'returned', ReturnDate FROM scored WHERE ReturnDate IS NOT NULL
+    UNION ALL
+    SELECT hd, sd, bucket, 'ev', EarlyVoted FROM scored WHERE EarlyVoted IS NOT NULL
+)
+SELECT hd, sd, bucket, stat, event_date, COUNT(*) AS n
+FROM events
+GROUP BY hd, sd, bucket, stat, event_date
+"""
 
 
 def normalize_district_id(value):
     raw = str(value or "").strip().upper()
-    if not raw:
+    if not raw or raw == "0" or raw == "NONE":
         return ""
     if raw.isdigit():
         return raw.zfill(3)
     return raw.replace(" ", "")
 
 
-def build_outputs(rows, updated):
-    """rows: (state_fips, chamber, district_id, stat, bucket, n)"""
-    # districts[fips][chamber][district_id][stat][bucket] = n
-    districts = defaultdict(lambda: defaultdict(lambda: defaultdict(
-        lambda: {s: {b: 0 for b in BUCKETS} for s in STATS})))
-    statewide = defaultdict(lambda: {s: {b: 0 for b in BUCKETS} for s in STATS})
+def timeline_key(stat, event_date, today):
+    """Chronological bucket for an event date (see module docstring)."""
+    if not isinstance(event_date, date):
+        return "unknown"
+    if event_date > today:
+        return "unknown"
+    if event_date < CYCLE_START:
+        return "pre2026" if stat == "requested" else "unknown"
+    return event_date.isoformat()
 
-    for row in rows:
-        fips = normalize_fips(row[0])
-        chamber = str(row[1] or "").strip().lower()
-        stat = str(row[3] or "").strip().lower()
-        bucket = str(row[4] or "").strip().lower()
-        n = int(row[5] or 0)
-        if not fips or fips not in FIPS_TO_ABBR or stat not in STATS or bucket not in BUCKETS:
-            continue
-        if chamber == "statewide":
-            statewide[fips][stat][bucket] += n
-            continue
-        if chamber not in ("house", "senate"):
-            continue
-        did = normalize_district_id(row[2])
-        if not did:
-            continue
-        districts[fips][chamber][did][stat][bucket] += n
 
+def empty_stat_buckets():
+    return {s: {b: 0 for b in BUCKETS} for s in STATS}
+
+
+def pull_state(conn, abbr, today):
+    model = STATE_MODELS[abbr]
+    print(f"[{abbr}] running aggregate query (model: {model['model_table']}) ...")
+    cursor = conn.cursor()
+    cursor.execute(state_query(model), abbr)
+    rows = cursor.fetchall()
+    print(f"[{abbr}] {len(rows):,} aggregate rows returned.")
+
+    house = defaultdict(empty_stat_buckets)
+    senate = defaultdict(empty_stat_buckets)
+    statewide = empty_stat_buckets()
+    timeline = {s: defaultdict(lambda: {b: 0 for b in BUCKETS}) for s in STATS}
+
+    for hd, sd, bucket, stat, event_date, n in rows:
+        bucket = str(bucket or "").strip()
+        stat = str(stat or "").strip()
+        if bucket not in BUCKETS or stat not in STATS:
+            continue
+        n = int(n or 0)
+        hd_id = normalize_district_id(hd)
+        sd_id = normalize_district_id(sd)
+        if hd_id:
+            house[hd_id][stat][bucket] += n
+        if sd_id:
+            senate[sd_id][stat][bucket] += n
+        statewide[stat][bucket] += n
+        timeline[stat][timeline_key(stat, event_date, today)][bucket] += n
+
+    return house, senate, statewide, timeline
+
+
+def timeline_rows(timeline_stat):
+    """Sorted timeline: pre2026 first, then dates ascending, unknown last."""
+    def order(key):
+        if key == "pre2026":
+            return (0, "")
+        if key == "unknown":
+            return (2, "")
+        return (1, key)
+
+    return [
+        {"date": key, **timeline_stat[key]}
+        for key in sorted(timeline_stat, key=order)
+    ]
+
+
+def build_outputs(results, updated):
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_index = {"house": [], "senate": []}
-    for fips in sorted(districts):
-        abbr = FIPS_TO_ABBR[fips]
-        for chamber in ("house", "senate"):
-            dmap = districts[fips].get(chamber)
+    states_out = []
+    timeline_out = {}
+
+    for abbr in sorted(results):
+        fips = ABBR_TO_FIPS[abbr]
+        house, senate, statewide, timeline = results[abbr]
+
+        for chamber, dmap in (("house", house), ("senate", senate)):
             if not dmap:
                 continue
             out = {
@@ -166,50 +255,37 @@ def build_outputs(rows, updated):
             path.write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
             out_index[chamber].append(f"data/abev/{path.name}")
 
-    states_out = []
-    for fips in sorted(statewide):
-        abbr = FIPS_TO_ABBR[fips]
         states_out.append({
             "state_fips": fips,
             "state_abbr": abbr,
             "state_name": ABBR_TO_NAME.get(abbr, abbr),
-            **statewide[fips],
+            **statewide,
         })
-    national = {"updated": updated, "states": states_out}
-    (OUT_DIR / "national.json").write_text(json.dumps(national, separators=(",", ":")), encoding="utf-8")
+        timeline_out[fips] = {stat: timeline_rows(timeline[stat]) for stat in STATS}
 
-    append_history(statewide, updated)
-
-    index_out = {
-        "updated": updated,
-        **out_index,
-        "national": "data/abev/national.json",
-        "history": "data/abev/history.json",
-    }
-    (OUT_DIR / "abev_files.json").write_text(json.dumps(index_out, indent=2), encoding="utf-8")
+    (OUT_DIR / "national.json").write_text(
+        json.dumps({"updated": updated, "states": states_out}, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    (OUT_DIR / "timeline.json").write_text(
+        json.dumps({"updated": updated, "states": timeline_out}, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    (OUT_DIR / "abev_files.json").write_text(
+        json.dumps(
+            {
+                "updated": updated,
+                **out_index,
+                "national": "data/abev/national.json",
+                "timeline": "data/abev/timeline.json",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     print(f"Wrote {len(out_index['house'])} house + {len(out_index['senate'])} senate files, "
-          f"{len(states_out)} states in national.json.")
-
-
-def append_history(statewide, updated):
-    history_path = OUT_DIR / "history.json"
-    history = {"days": []}
-    if history_path.exists():
-        try:
-            history = json.loads(history_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            pass
-    if history.get("sample"):
-        # First real update replaces sample history entirely.
-        history = {"days": []}
-
-    day_states = {fips: dict(stats) for fips, stats in statewide.items()}
-    days = [d for d in history.get("days", []) if d.get("date") != updated]
-    days.append({"date": updated, "states": day_states})
-    days.sort(key=lambda d: d.get("date", ""))
-    history_path.write_text(json.dumps({"days": days}, separators=(",", ":")), encoding="utf-8")
-    print(f"History now covers {len(days)} days.")
+          f"{len(states_out)} states in national.json + timeline.json.")
 
 
 def git_publish(updated):
@@ -232,23 +308,33 @@ def git_publish(updated):
 def main():
     parser = argparse.ArgumentParser(description="Daily ABEV data update")
     parser.add_argument("--no-push", action="store_true", help="update files but skip git commit/push")
-    parser.add_argument("--dry-run", action="store_true", help="connect and run the query, write nothing")
+    parser.add_argument("--dry-run", action="store_true", help="connect and run queries, write nothing")
+    parser.add_argument("--states", default=",".join(ACTIVE_STATES),
+                        help="comma-separated state abbrs to pull (default: %(default)s)")
     args = parser.parse_args()
 
-    updated = date.today().isoformat()
+    states = [s.strip().upper() for s in args.states.split(",") if s.strip()]
+    for abbr in states:
+        if abbr not in STATE_MODELS:
+            sys.exit(f"No model configured for {abbr} — add it to STATE_MODELS in {__file__}")
+
+    today = date.today()
+    updated = today.isoformat()
     cfg = load_config()
     conn = connect(cfg)
     try:
-        rows = run_aggregate_query(conn)
+        results = {abbr: pull_state(conn, abbr, today) for abbr in states}
     finally:
         conn.close()
 
     if args.dry_run:
+        for abbr, (house, senate, statewide, _timeline) in results.items():
+            print(f"[{abbr}] house districts: {len(house)}, senate districts: {len(senate)}, "
+                  f"statewide requested: {sum(statewide['requested'].values()):,}")
         print("Dry run complete — no files written.")
         return
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    build_outputs(rows, updated)
+    build_outputs(results, updated)
 
     if args.no_push:
         print("Skipping git publish (--no-push).")
