@@ -2675,3 +2675,77 @@ html.auth-pending main {
 .chrono-special-row td {
   color: var(--muted);
 }
+
+/* --- Stacked chamber/chrono button rows --- */
+.chamber-buttons-stack {
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.chamber-btn-row {
+  display: flex;
+  gap: 0.42rem;
+}
+
+.chamber-btn-row button {
+  flex: 1 1 0;
+}
+
+/* --- Sticky header fix: keep scrolled rows from peeking above the pinned
+       header by moving the sidebar's top padding into the h2 --- */
+.sidebar {
+  padding-top: 0;
+}
+
+.sidebar h2 {
+  padding-top: 0.9rem;
+  background: var(--panel);
+}
+
+/* --- Compact two-line wrapped headers + thinner columns --- */
+.abev-table {
+  font-size: 0.85rem;
+}
+
+.abev-table th {
+  height: auto;
+  min-height: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.3px;
+  padding: 0.34rem 0.32rem;
+  line-height: 1.2;
+}
+
+.abev-table th.abev-gap-cell {
+  background: #1b232d;
+}
+
+.abev-count-cell {
+  padding: 0.3rem 0.4rem;
+}
+
+.abev-table .abev-name-cell {
+  padding-left: 0.45rem;
+  padding-right: 0.45rem;
+}
+
+/* --- Vertical separator lines bordering the column-group breaks --- */
+.abev-table th.abev-vline-left,
+.abev-table td.abev-vline-left {
+  border-left: 1px solid var(--border);
+}
+
+.abev-table th.abev-vline-right,
+.abev-table td.abev-vline-right {
+  border-right: 1px solid var(--border);
+}
+
+/* --- District detail: larger plain title, purple Swing --- */
+.detail-title-large {
+  font-size: 1.4rem;
+  font-weight: 800;
+  margin-bottom: 0.35rem;
+}
+
+.color-net-toss { background: #8e509e; }
+.detail-cell-toss { color: #c795d8; }

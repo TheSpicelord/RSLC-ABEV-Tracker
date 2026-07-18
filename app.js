@@ -12,6 +12,8 @@ import {
   CHAMBER_NAMES_URL,
   CTRL_FINE_ZOOM_SNAP,
   CTRL_WHEEL_ZOOM_SLOW_FACTOR,
+  DEFAULT_ELECTION_DAY,
+  ELECTION_DAY_OVERRIDES,
   NATIONAL_CENTER,
   NATIONAL_ZOOM,
   OVERSEAS_TERRITORY_ABBR,
@@ -41,7 +43,7 @@ if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260718c";
+const BUILD_VERSION = "20260718d";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -280,13 +282,13 @@ function netPctFromTotals(totals) {
 }
 
 // District-Explorer-style margin cell: signed percentage on a colored field.
-function marginCellHtml(netPct) {
+function marginCellHtml(netPct, extraClass = "") {
   if (typeof netPct !== "number") {
-    return '<td class="margin-cell margin-cell-na">N/A</td>';
+    return `<td class="margin-cell margin-cell-na${extraClass}">N/A</td>`;
   }
   const sign = netPct >= 0 ? "+" : "-";
   const text = `${sign}${Math.abs(netPct).toFixed(1)}`;
-  return `<td class="margin-cell" style="background:${netColor(netPct)}">${escapeHtml(text)}</td>`;
+  return `<td class="margin-cell${extraClass}" style="background:${netColor(netPct)}">${escapeHtml(text)}</td>`;
 }
 
 // The stat used for map coloring / highlights under the active view.
@@ -1458,33 +1460,43 @@ function statewideCardsHtml() {
   return `<div class="statewide-stats-grid three-cards">${cards}</div>`;
 }
 
-// Column layouts per view. "gap" entries render as thin separator columns.
+// Column layouts per view. "gap" entries render as thin separator columns;
+// labels are arrays of lines so headers wrap onto exactly two lines.
 function viewColumnDefs(view) {
   if (view === "ab") {
     return [
       { type: "gap" },
-      { key: "requested", kind: "count", label: "Requested", sortKey: "requested" },
-      { key: "requested", kind: "margin", label: "Requested Margin", sortKey: "requested_margin" },
+      { key: "requested", kind: "count", label: ["Requested"], sortKey: "requested" },
+      { key: "requested", kind: "margin", label: ["Requested", "Margin"], sortKey: "requested_margin" },
       { type: "gap" },
-      { key: "returned", kind: "count", label: "Returned", sortKey: "returned" },
-      { key: "returned", kind: "margin", label: "Returned Margin", sortKey: "returned_margin" },
+      { key: "returned", kind: "count", label: ["Returned"], sortKey: "returned" },
+      { key: "returned", kind: "margin", label: ["Returned", "Margin"], sortKey: "returned_margin" },
     ];
   }
   if (view === "ev") {
     return [
       { type: "gap" },
-      { key: "ev", kind: "count", label: "Early Votes", sortKey: "ev" },
-      { key: "ev", kind: "margin", label: "Early Votes Margin", sortKey: "ev_margin" },
+      { key: "ev", kind: "count", label: ["Early", "Votes"], sortKey: "ev" },
+      { key: "ev", kind: "margin", label: ["Early Votes", "Margin"], sortKey: "ev_margin" },
     ];
   }
   return [
     { type: "gap" },
-    { key: "returned", kind: "count", label: "Absentees Returned", sortKey: "returned" },
-    { key: "ev", kind: "count", label: "Early Votes", sortKey: "ev" },
+    { key: "returned", kind: "count", label: ["Absentees", "Returned"], sortKey: "returned" },
+    { key: "ev", kind: "count", label: ["Early", "Votes"], sortKey: "ev" },
     { type: "gap" },
-    { key: "voted", kind: "count", label: "Total Votes", sortKey: "voted" },
-    { key: "voted", kind: "margin", label: "ABEV Margin", sortKey: "voted_margin" },
+    { key: "voted", kind: "count", label: ["Total", "Votes"], sortKey: "voted" },
+    { key: "voted", kind: "margin", label: ["ABEV", "Margin"], sortKey: "voted_margin" },
   ];
+}
+
+function columnLabelHtml(col) {
+  return (col.label || []).map((line) => escapeHtml(line)).join("<br>");
+}
+
+// Columns immediately to the right of a gap get a left border line.
+function columnVlineClass(cols, idx) {
+  return idx > 0 && cols[idx - 1]?.type === "gap" ? " abev-vline-left" : "";
 }
 
 function districtTableHtml() {
@@ -1495,27 +1507,28 @@ function districtTableHtml() {
   const cols = viewColumnDefs(state.abevView);
 
   const headCells = cols
-    .map((col) => {
+    .map((col, idx) => {
       if (col.type === "gap") return '<th class="abev-gap-cell"></th>';
-      return `<th class="abev-sortable" data-sort-scope="district" data-sort-key="${col.sortKey}">${escapeHtml(col.label)}${sortIndicator(state.districtSort, col.sortKey)}</th>`;
+      return `<th class="abev-sortable${columnVlineClass(cols, idx)}" data-sort-scope="district" data-sort-key="${col.sortKey}">${columnLabelHtml(col)}${sortIndicator(state.districtSort, col.sortKey)}</th>`;
     })
     .join("");
 
   const body = rows
     .map((row) => {
       const cells = cols
-        .map((col) => {
+        .map((col, idx) => {
           if (col.type === "gap") return '<td class="abev-gap-cell"></td>';
+          const vline = columnVlineClass(cols, idx);
           const totals = row.rec ? statTotals(row.rec, col.key) : null;
           if (col.kind === "count") {
-            return `<td class="abev-count-cell">${totals ? escapeHtml(formatCount(totals.total)) : "—"}</td>`;
+            return `<td class="abev-count-cell${vline}">${totals ? escapeHtml(formatCount(totals.total)) : "—"}</td>`;
           }
-          return marginCellHtml(netPctFromTotals(totals));
+          return marginCellHtml(netPctFromTotals(totals), vline);
         })
         .join("");
       return `
         <tr class="target-row district-select-row" data-join-key="${escapeHtml(row.joinKey)}">
-          <td class="abev-name-cell">${escapeHtml(row.label)}</td>
+          <td class="abev-name-cell abev-vline-left abev-vline-right">${escapeHtml(row.label)}</td>
           ${cells}
         </tr>
       `;
@@ -1526,7 +1539,7 @@ function districtTableHtml() {
     <table class="abev-table">
       <thead>
         <tr>
-          <th class="abev-sortable abev-name-head" data-sort-scope="district" data-sort-key="district">Dist${sortIndicator(state.districtSort, "district")}</th>
+          <th class="abev-sortable abev-name-head abev-vline-left abev-vline-right" data-sort-scope="district" data-sort-key="district">Dist${sortIndicator(state.districtSort, "district")}</th>
           ${headCells}
         </tr>
       </thead>
@@ -1609,13 +1622,18 @@ function showChronoView() {
 }
 
 function chronoViewHtml() {
-  const title = state.chronoMode === "daily" ? "Daily Activity" : "Cumulative Totals";
+  const title = state.chronoMode === "daily" ? "Daily Returns" : "Cumulative Returns";
   return `
     ${statewideCardsHtml()}
     <div class="detail-break"></div>
     <div class="detail-section-title centered-section-title">${escapeHtml(title)}</div>
     ${chronoTableHtml()}
   `;
+}
+
+function electionDayForSelectedState() {
+  const fips = normalizeStateFips(state.selectedState?.fips);
+  return ELECTION_DAY_OVERRIDES[fips] || DEFAULT_ELECTION_DAY;
 }
 
 function timelineEntriesForSelectedState() {
@@ -1662,6 +1680,9 @@ function chronoRows() {
   const byDate = timelineEntriesForSelectedState();
   if (!byDate || !byDate.size) return [];
   const todayIso = new Date().toISOString().slice(0, 10);
+  // Never display dates past election day (or the future); fold those counts
+  // into Unknown so cumulative totals still account for every vote.
+  const cutoffIso = electionDayForSelectedState() < todayIso ? electionDayForSelectedState() : todayIso;
 
   const dateKeys = [];
   let pre = null;
@@ -1675,7 +1696,10 @@ function chronoRows() {
       unknown = stats;
       continue;
     }
-    if (key > todayIso) continue; // never display future dates
+    if (key > cutoffIso) {
+      unknown = addChronoStats(unknown ? addChronoStats(emptyChronoStats(), unknown) : emptyChronoStats(), stats);
+      continue;
+    }
     dateKeys.push(key);
   }
   dateKeys.sort();
@@ -1735,9 +1759,9 @@ function chronoTableHtml() {
   const cols = viewColumnDefs(state.abevView);
 
   const headCells = cols
-    .map((col) => {
+    .map((col, idx) => {
       if (col.type === "gap") return '<th class="abev-gap-cell"></th>';
-      return `<th>${escapeHtml(col.label)}</th>`;
+      return `<th class="${columnVlineClass(cols, idx).trim()}">${columnLabelHtml(col)}</th>`;
     })
     .join("");
 
@@ -1748,19 +1772,20 @@ function chronoTableHtml() {
       if (allZero && state.chronoMode === "daily" && !row.special) return "";
       if (allZero && row.special) return "";
       const cells = cols
-        .map((col) => {
+        .map((col, idx) => {
           if (col.type === "gap") return '<td class="abev-gap-cell"></td>';
+          const vline = columnVlineClass(cols, idx);
           const totals = chronoStatTotals(row.stats, col.key);
           if (col.kind === "count") {
-            return `<td class="abev-count-cell">${escapeHtml(formatCount(totals.total))}</td>`;
+            return `<td class="abev-count-cell${vline}">${escapeHtml(formatCount(totals.total))}</td>`;
           }
           const netPct = totals.total > 0 ? (totals.net / totals.total) * 100 : null;
-          return marginCellHtml(netPct);
+          return marginCellHtml(netPct, vline);
         })
         .join("");
       return `
         <tr class="target-row${row.special ? " chrono-special-row" : ""}">
-          <td class="chrono-date-cell">${escapeHtml(row.label)}</td>
+          <td class="chrono-date-cell abev-vline-left abev-vline-right">${escapeHtml(row.label)}</td>
           ${cells}
         </tr>
       `;
@@ -1771,7 +1796,7 @@ function chronoTableHtml() {
     <table class="abev-table">
       <thead>
         <tr>
-          <th class="abev-name-head">Date</th>
+          <th class="abev-name-head abev-vline-left abev-vline-right">Date</th>
           ${headCells}
         </tr>
       </thead>
@@ -1840,13 +1865,11 @@ function districtTitle(properties, joinInfo) {
 }
 
 function districtDetailHtml(properties, joinInfo, rec) {
-  const title = districtTitle(properties, joinInfo);
-  const name = String(readProperty(properties, "NAMELSAD") || "").trim();
+  const title = `District ${displayDistrictId(joinInfo.rawDistrict, joinInfo.districtId)}`;
 
   if (!rec) {
     return `
-      <div class="detail-title">${escapeHtml(title)}</div>
-      ${name ? `<div class="detail-meta">${escapeHtml(name)}</div>` : ""}
+      <div class="detail-title detail-title-large">${escapeHtml(title)}</div>
       <div class="detail-meta-muted">No ABEV data for this district.</div>
     `;
   }
@@ -1863,7 +1886,7 @@ function districtDetailHtml(properties, joinInfo, rec) {
           <td class="detail-cell-rep">${escapeHtml(formatCount(totals.rep))}</td>
           <td class="detail-cell-dem">${escapeHtml(formatCount(totals.dem))}</td>
           <td class="detail-cell-toss">${escapeHtml(formatCount(totals.toss))}</td>
-          <td>${netPctHtml(netPctFromTotals(totals))}</td>
+          ${marginCellHtml(netPctFromTotals(totals))}
         </tr>
       `;
     })
@@ -1891,13 +1914,11 @@ function districtDetailHtml(properties, joinInfo, rec) {
   }
 
   return `
-    <div class="detail-title">${escapeHtml(title)}</div>
-    ${name ? `<div class="detail-meta">${escapeHtml(name)}</div>` : ""}
-    ${state.updatedDate ? `<div class="detail-meta-muted">Data as of ${escapeHtml(state.updatedDate)}</div>` : ""}
+    <div class="detail-title detail-title-large">${escapeHtml(title)}</div>
     <div class="detail-break"></div>
     <table class="abev-detail-table">
       <thead>
-        <tr><th></th><th>Total</th><th>GOP</th><th>Dem</th><th>Swing</th><th>Margin</th></tr>
+        <tr><th></th><th>Total</th><th>GOP</th><th>Dem</th><th>Swing</th><th class="margin-head">Margin</th></tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>

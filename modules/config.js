@@ -52,6 +52,14 @@ export const VIEW_MAP_STAT = {
   abev: "voted",
 };
 
+// Chronological views never display dates past election day.
+// Overrides cover the spring-2026 test elections; everything else is Nov 3.
+export const DEFAULT_ELECTION_DAY = "2026-11-03";
+export const ELECTION_DAY_OVERRIDES = {
+  "51": "2026-04-21", // VA referendum (test data)
+  "55": "2026-04-07", // WI Supreme Court (test data)
+};
+
 export const STATE_NAME_TO_ABBR = {
   ALABAMA: "AL",
   ALASKA: "AK",

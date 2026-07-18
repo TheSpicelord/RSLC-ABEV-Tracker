@@ -48,10 +48,15 @@ CYCLE_START = date(2026, 1, 1)
 # for a LEFT-JOINed model row alias `m` (NULL columns when unmatched).
 # When more states come online, add them here. States without their own model
 # will eventually fall back to a national model (not yet wired up).
+# election_day: timeline dates after this fold into "unknown" (the spring test
+# elections end in April; real 2026 general states use Nov 3).
+DEFAULT_ELECTION_DAY = date(2026, 11, 3)
+
 STATE_MODELS = {
     "VA": {
         "model_table": "dbo.RSLC_VA_R2_Exchange_20250804",
         "join_col": "dt_regid",
+        "election_day": date(2026, 4, 21),  # spring referendum (test data)
         "bucket_sql": (
             "CASE WHEN m.RepublicanFramework_Flag = 1 THEN 'rep' "
             "WHEN m.DemocratFramework_Flag = 1 THEN 'dem' "
@@ -61,6 +66,7 @@ STATE_MODELS = {
     "WI": {
         "model_table": "dbo.RGA_WI_ExchangeData_20260131",
         "join_col": "dt_regid",
+        "election_day": date(2026, 4, 7),  # spring Supreme Court (test data)
         "bucket_sql": (
             "CASE WHEN m.universenumber BETWEEN 1 AND 3 THEN 'rep' "
             "WHEN m.universenumber BETWEEN 6 AND 8 THEN 'dem' "
@@ -168,11 +174,11 @@ def normalize_district_id(value):
     return raw.replace(" ", "")
 
 
-def timeline_key(stat, event_date, today):
+def timeline_key(stat, event_date, today, election_day):
     """Chronological bucket for an event date (see module docstring)."""
     if not isinstance(event_date, date):
         return "unknown"
-    if event_date > today:
+    if event_date > today or event_date > election_day:
         return "unknown"
     if event_date < CYCLE_START:
         return "pre2026" if stat == "requested" else "unknown"
@@ -209,7 +215,8 @@ def pull_state(conn, abbr, today):
         if sd_id:
             senate[sd_id][stat][bucket] += n
         statewide[stat][bucket] += n
-        timeline[stat][timeline_key(stat, event_date, today)][bucket] += n
+        election_day = model.get("election_day", DEFAULT_ELECTION_DAY)
+        timeline[stat][timeline_key(stat, event_date, today, election_day)][bucket] += n
 
     return house, senate, statewide, timeline
 
