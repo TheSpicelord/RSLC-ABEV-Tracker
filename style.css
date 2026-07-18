@@ -2608,3 +2608,70 @@ html.auth-pending main {
 .hover-stat-table tr.hover-stat-selected td:first-child {
   color: #9fc6ff;
 }
+
+/* --- Chrono (Daily/Cumulative) buttons: aqua active state --- */
+.chamber-buttons button.active-chrono {
+  background: linear-gradient(180deg, #0d97a8 0%, #086b7a 100%);
+  border-color: #6fe3f2;
+  color: #ffffff;
+  box-shadow: 0 0 0 1px rgba(140, 235, 250, 0.35), 0 0 14px rgba(20, 180, 201, 0.42);
+}
+
+/* --- Wrapped, vertically centered two-line table headers --- */
+.abev-table th {
+  white-space: normal;
+  vertical-align: middle;
+  height: 2.9em;
+  line-height: 1.18;
+  padding: 0.3rem 0.3rem;
+}
+
+.abev-table th.abev-name-head {
+  white-space: nowrap;
+}
+
+/* --- Column group separators (thin gap columns, DE style) --- */
+.abev-table td.abev-gap-cell,
+.abev-table th.abev-gap-cell {
+  width: 8px;
+  min-width: 8px;
+  padding: 0 !important;
+  background: transparent;
+  border-bottom: 1px solid transparent !important;
+}
+
+.abev-count-cell {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* --- Clickable stat cards --- */
+.stat-card {
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 140ms ease, transform 120ms ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-1px);
+  border-color: #566b82;
+}
+
+.stat-card.stat-card-selected:hover {
+  border-color: #76b2ff;
+}
+
+.statewide-stats-grid.three-cards {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* --- Chrono table date cell --- */
+.chrono-date-cell {
+  text-align: center;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.chrono-special-row td {
+  color: var(--muted);
+}

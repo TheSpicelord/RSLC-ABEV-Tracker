@@ -1,7 +1,8 @@
 export const state = {
   mode: "national",
   chamber: "house",
-  statView: "voted",
+  abevView: "abev",
+  chronoMode: null,
   selectedState: null,
 
   // Geometry
@@ -26,6 +27,8 @@ export const state = {
     senate: new Map(),
   },
   nationalByFips: new Map(),
+  timelineByFips: new Map(),
+  chamberNamesByState: new Map(),
   updatedDate: "",
   isSampleData: false,
 

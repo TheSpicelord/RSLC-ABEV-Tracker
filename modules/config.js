@@ -20,10 +20,9 @@ export const AUTO_SHAPE_URLS = {
 export const ABEV_INDEX_URL = "data/abev/abev_files.json";
 export const ABEV_NATIONAL_URL = "data/abev/national.json";
 export const ABEV_TIMELINE_URL = "data/abev/timeline.json";
+export const CHAMBER_NAMES_URL = "data/state_chamber_names.json";
 
-// The four tracked stats. "voted" is calculated client-side as returned + ev.
-export const STAT_VIEWS = ["requested", "returned", "ev", "voted"];
-
+// Raw stats: requested / returned / ev; "voted" is calculated as returned + ev.
 export const STAT_LABELS = {
   requested: "ABs Requested",
   returned: "ABs Returned",
@@ -31,11 +30,26 @@ export const STAT_LABELS = {
   voted: "Total Votes",
 };
 
-export const STAT_SHORT_LABELS = {
-  requested: "Requested",
-  returned: "Returned",
+// The three display views. Each drives the sidebar table layout and the stat
+// used for map coloring.
+export const ABEV_VIEWS = ["ab", "ev", "abev"];
+
+export const VIEW_BUTTON_LABELS = {
+  ab: "Absentees",
   ev: "Early Votes",
-  voted: "Total Votes",
+  abev: "ABEV Total",
+};
+
+export const VIEW_CARD_LABELS = {
+  ab: "Absentee Votes",
+  ev: "Early Votes",
+  abev: "ABEV Totals",
+};
+
+export const VIEW_MAP_STAT = {
+  ab: "returned",
+  ev: "ev",
+  abev: "voted",
 };
 
 export const STATE_NAME_TO_ABBR = {

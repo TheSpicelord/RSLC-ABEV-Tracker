@@ -85,8 +85,12 @@ Chamber file (`data/abev/va_house.json`):
 
 ## UI Behaviors
 
-- Stat view buttons (keys 1–4) recolor map + highlight the stat column everywhere
-- National view: states colored by statewide net of selected stat (states without data are dimmed); sidebar table US totals row + per-state rows (sortable headers, hover syncs map)
-- State view: districts colored by net; sidebar = statewide stat cards + sortable district table; click district → detail panel (bucket table, AB return rate = returned/requested, EV share, stacked bar)
-- Esc: close popup → deselect district → exit to national. Left Shift: toggle chamber. Ctrl+wheel: fine zoom.
+- **Three views** (keys 1–3, topbar buttons + clickable sidebar cards): `ab` (Absentee Votes: Requested/Returned columns), `ev` (Early Votes), `abev` (ABEV Totals: Returned/EV/Total — the default). Each view maps to a coloring stat via `VIEW_MAP_STAT` (`returned`/`ev`/`voted`); map + column highlights follow it.
+- **Margins are always percentages** of the stat total, positive = R. Two renderings: `formatNetPct` → "R+5.4"/"D+3.2"/"EVEN" (cards, hover, detail), and `marginCellHtml` → DE-style colored cell "+5.4"/"-3.2". Party buckets display as GOP / Dem / **Swing** (data key remains `toss`).
+- District tables: raw count columns + margin cells, thin gap columns (`abev-gap-cell`) separating groups, wrapped two-line sortable headers (count and margin columns sort independently).
+- **Daily / Cumulative chrono views**: topbar buttons next to chamber buttons (aqua `active-chrono` style), state mode only, built from `timeline.json` (statewide — no chamber/district breakdown). Rows newest-first as M/D; "Pre-2026"/"Unknown" rows at bottom (Daily) or folded into a baseline row (Cumulative) so the newest cumulative row equals the all-time total. Future dates never displayed. Switching chamber exits chrono.
+- Sidebar headers use proper chamber names from `data/state_chamber_names.json` (`"VA|house"` → "Virginia House of Delegates").
+- National view: states colored by statewide net of the view's stat (no data = dimmed); sidebar table US totals row + per-state rows with all four stats (count + margin%), sortable, hover syncs map.
+- Click district → detail panel (Total/GOP/Dem/Swing/Margin per stat, AB return rate = returned/requested, EV share, stacked bar).
+- Esc: close popup → deselect district → exit chrono → exit to national. Left Shift: toggle chamber. Ctrl+wheel: fine zoom.
 - Auth is OFF (`AUTH_ENABLED = false` in `modules/config.js`).

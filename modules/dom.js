@@ -1,5 +1,7 @@
 export const houseChamberBtn = document.getElementById("houseChamberBtn");
 export const senateChamberBtn = document.getElementById("senateChamberBtn");
+export const dailyChronoBtn = document.getElementById("dailyChronoBtn");
+export const cumulativeChronoBtn = document.getElementById("cumulativeChronoBtn");
 export const statViewButtons = document.getElementById("statViewButtons");
 export const stateSelect = document.getElementById("stateSelect");
 export const exitStateBtn = document.getElementById("exitStateBtn");

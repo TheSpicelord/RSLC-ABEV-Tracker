@@ -2,11 +2,14 @@ import { requireAuth } from "./modules/auth.js";
 import {
   ABEV_INDEX_URL,
   ABEV_NATIONAL_URL,
+  ABEV_TIMELINE_URL,
+  ABEV_VIEWS,
   AUTH_ENABLED,
   AUTH_WORKER_URL,
   AUTO_SHAPE_URLS,
   BASE_WHEEL_PX_PER_ZOOM_LEVEL,
   BASE_ZOOM_SNAP,
+  CHAMBER_NAMES_URL,
   CTRL_FINE_ZOOM_SNAP,
   CTRL_WHEEL_ZOOM_SLOW_FACTOR,
   NATIONAL_CENTER,
@@ -14,10 +17,13 @@ import {
   OVERSEAS_TERRITORY_ABBR,
   OVERSEAS_TERRITORY_FIPS,
   STAT_LABELS,
-  STAT_SHORT_LABELS,
-  STAT_VIEWS,
+  VIEW_BUTTON_LABELS,
+  VIEW_CARD_LABELS,
+  VIEW_MAP_STAT,
 } from "./modules/config.js";
 import {
+  cumulativeChronoBtn,
+  dailyChronoBtn,
   details,
   detailsTitle,
   exitStateBtn,
@@ -35,7 +41,7 @@ if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260718b";
+const BUILD_VERSION = "20260718c";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -91,7 +97,7 @@ async function init() {
   wireEvents();
   initHoverInfo();
   initChamberOverviewButton();
-  renderStatViewButtons();
+  renderViewButtons();
 
   detailsTitle.textContent = "National Overview";
   setDetailsLoading("Loading ABEV data...");
@@ -111,10 +117,12 @@ async function loadAbevData() {
   const houseUrls = Array.isArray(index?.house) ? index.house : [];
   const senateUrls = Array.isArray(index?.senate) ? index.senate : [];
 
-  const [houseFiles, senateFiles, national] = await Promise.all([
+  const [houseFiles, senateFiles, national, timeline, chamberNames] = await Promise.all([
     Promise.all(houseUrls.map((url) => fetchJson(url))),
     Promise.all(senateUrls.map((url) => fetchJson(url))),
     fetchJson(index?.national || ABEV_NATIONAL_URL),
+    fetchJson(index?.timeline || ABEV_TIMELINE_URL),
+    fetchJson(CHAMBER_NAMES_URL),
   ]);
 
   state.dataByChamber.house = buildDataMap(houseFiles);
@@ -125,6 +133,20 @@ async function loadAbevData() {
     const fips = normalizeStateFips(rec.state_fips);
     if (fips) state.nationalByFips.set(fips, rec);
   }
+
+  state.timelineByFips = new Map();
+  for (const [fips, rec] of Object.entries(timeline?.states || {})) {
+    const normalized = normalizeStateFips(fips);
+    if (normalized) state.timelineByFips.set(normalized, rec);
+  }
+
+  state.chamberNamesByState = new Map();
+  if (chamberNames && typeof chamberNames === "object") {
+    for (const [key, value] of Object.entries(chamberNames)) {
+      if (typeof value === "string" && value.trim()) state.chamberNamesByState.set(key, value.trim());
+    }
+  }
+
   state.updatedDate = String(national?.updated || index?.updated || "");
   state.isSampleData = Boolean(national?.sample || index?.sample);
 }
@@ -222,22 +244,54 @@ function netPctForRecord(rec, stat) {
   return (totals.net / totals.total) * 100;
 }
 
+// Stats shown in detail/hover breakdowns (all four raw + calculated stats).
+const DETAIL_STATS = ["requested", "returned", "ev", "voted"];
+const DETAIL_STAT_SHORT = {
+  requested: "Requested",
+  returned: "Returned",
+  ev: "Early Votes",
+  voted: "Total Votes",
+};
+
 function formatCount(value) {
   return Number(value || 0).toLocaleString("en-US");
 }
 
-function formatNet(net) {
-  if (typeof net !== "number" || net === 0) return "EVEN";
-  return net > 0 ? `R+${formatCount(net)}` : `D+${formatCount(Math.abs(net))}`;
+// All displayed margins are percentages of the stat total: R+5.4 / D+3.2.
+function formatNetPct(netPct) {
+  if (typeof netPct !== "number") return "N/A";
+  if (Math.abs(netPct) < 0.05) return "EVEN";
+  const abs = Math.abs(netPct).toFixed(1);
+  return netPct > 0 ? `R+${abs}` : `D+${abs}`;
 }
 
-function netClass(net) {
-  if (typeof net !== "number" || net === 0) return "net-even";
-  return net > 0 ? "net-r" : "net-d";
+function netClass(netPct) {
+  if (typeof netPct !== "number" || Math.abs(netPct) < 0.05) return "net-even";
+  return netPct > 0 ? "net-r" : "net-d";
 }
 
-function netHtml(net) {
-  return `<span class="${netClass(net)}">${escapeHtml(formatNet(net))}</span>`;
+function netPctHtml(netPct) {
+  return `<span class="${netClass(netPct)}">${escapeHtml(formatNetPct(netPct))}</span>`;
+}
+
+function netPctFromTotals(totals) {
+  if (!totals || totals.total <= 0) return null;
+  return (totals.net / totals.total) * 100;
+}
+
+// District-Explorer-style margin cell: signed percentage on a colored field.
+function marginCellHtml(netPct) {
+  if (typeof netPct !== "number") {
+    return '<td class="margin-cell margin-cell-na">N/A</td>';
+  }
+  const sign = netPct >= 0 ? "+" : "-";
+  const text = `${sign}${Math.abs(netPct).toFixed(1)}`;
+  return `<td class="margin-cell" style="background:${netColor(netPct)}">${escapeHtml(text)}</td>`;
+}
+
+// The stat used for map coloring / highlights under the active view.
+function mapStat() {
+  return VIEW_MAP_STAT[state.abevView] || "voted";
 }
 
 // Fill color from net advantage as a share of the stat total.
@@ -250,16 +304,17 @@ function netColor(netPct) {
   return interpolateHex("#cfe2ff", "#257BF8", Math.min(Math.abs(netPct), 40) / 40);
 }
 
-function statCellHtml(rec, stat, options = {}) {
+function statCellHtml(rec, stat) {
   const totals = rec ? statTotals(rec, stat) : null;
-  const selected = state.statView === stat ? " stat-col-selected" : "";
-  if (!totals) {
+  const selected = mapStat() === stat ? " stat-col-selected" : "";
+  if (!totals || totals.total <= 0) {
     return `<td class="stat-cell${selected}"><span class="stat-cell-count">—</span></td>`;
   }
+  const netPct = netPctFromTotals(totals);
   return `
     <td class="stat-cell${selected}">
       <span class="stat-cell-count">${escapeHtml(formatCount(totals.total))}</span>
-      <span class="stat-cell-net ${netClass(totals.net)}">${escapeHtml(formatNet(totals.net))}</span>
+      <span class="stat-cell-net ${netClass(netPct)}">${escapeHtml(formatNetPct(netPct))}</span>
     </td>
   `;
 }
@@ -277,6 +332,18 @@ function wireEvents() {
     await setChamber("senate");
   });
 
+  if (dailyChronoBtn) {
+    dailyChronoBtn.addEventListener("click", () => {
+      setChronoMode("daily");
+    });
+  }
+
+  if (cumulativeChronoBtn) {
+    cumulativeChronoBtn.addEventListener("click", () => {
+      setChronoMode("cumulative");
+    });
+  }
+
   stateSelect.addEventListener("change", async (e) => {
     const key = String(e.target.value || "").trim();
     if (!key) return;
@@ -293,11 +360,11 @@ function wireEvents() {
       applyFineZoomMode(true);
     }
 
-    if (/^[1-4]$/.test(e.key)) {
+    if (/^[1-3]$/.test(e.key)) {
       const idx = Number(e.key) - 1;
-      if (idx < STAT_VIEWS.length) {
+      if (idx < ABEV_VIEWS.length) {
         e.preventDefault();
-        setStatView(STAT_VIEWS[idx]);
+        setAbevView(ABEV_VIEWS[idx]);
       }
       return;
     }
@@ -311,7 +378,11 @@ function wireEvents() {
       }
       if (state.selectedDistrictLayer) {
         clearSelectedDistrict();
-        showStateChamberOverview();
+        showActiveStateSidebar();
+        return;
+      }
+      if (state.chronoMode) {
+        setChronoMode(null);
         return;
       }
       enterNationalView();
@@ -359,9 +430,17 @@ function wireEvents() {
     if (state.suspendPopupCloseOverview) return;
     clearSelectedDistrict();
     if (state.mode === "state") {
-      showStateChamberOverview();
+      showActiveStateSidebar();
     }
   });
+}
+
+function showActiveStateSidebar() {
+  if (state.chronoMode) {
+    showChronoView();
+  } else {
+    showStateChamberOverview();
+  }
 }
 
 function isEditableTarget(target) {
@@ -384,42 +463,46 @@ function applyFineZoomMode(enabled) {
 }
 
 // ---------------------------------------------------------------------------
-// Stat view buttons
+// ABEV view buttons (Absentees / Early Votes / ABEV Total)
 // ---------------------------------------------------------------------------
 
-function renderStatViewButtons() {
+function renderViewButtons() {
   if (!statViewButtons) return;
   statViewButtons.innerHTML = "";
-  for (const stat of STAT_VIEWS) {
+  for (const view of ABEV_VIEWS) {
     const button = document.createElement("button");
     button.type = "button";
-    button.dataset.stat = stat;
-    button.textContent = STAT_SHORT_LABELS[stat] || stat;
-    button.title = `${STAT_LABELS[stat] || stat} (key ${STAT_VIEWS.indexOf(stat) + 1})`;
+    button.dataset.view = view;
+    button.textContent = VIEW_BUTTON_LABELS[view] || view;
+    button.title = `${VIEW_CARD_LABELS[view] || view} (key ${ABEV_VIEWS.indexOf(view) + 1})`;
     button.addEventListener("click", () => {
-      setStatView(stat);
+      setAbevView(view);
     });
     statViewButtons.appendChild(button);
   }
-  syncStatViewButtons();
+  syncViewButtons();
 }
 
-function syncStatViewButtons() {
+function syncViewButtons() {
   if (!statViewButtons) return;
   for (const button of statViewButtons.querySelectorAll("button")) {
-    button.classList.toggle("active-stat", button.dataset.stat === state.statView);
+    button.classList.toggle("active-stat", button.dataset.view === state.abevView);
   }
 }
 
-function setStatView(stat) {
-  if (!STAT_VIEWS.includes(stat) || state.statView === stat) return;
-  state.statView = stat;
-  syncStatViewButtons();
+function setAbevView(view) {
+  if (!ABEV_VIEWS.includes(view) || state.abevView === view) return;
+  state.abevView = view;
+  syncViewButtons();
   refreshStateBoundaryStyles();
-  refreshDistrictLayerForStatView();
+  refreshDistrictLayerForView();
 
   if (state.mode === "national") {
     renderNationalOverview();
+    return;
+  }
+  if (state.chronoMode) {
+    showChronoView();
     return;
   }
   if (state.selectedDistrictLayer) {
@@ -434,7 +517,7 @@ function setStatView(stat) {
   showStateChamberOverview();
 }
 
-function refreshDistrictLayerForStatView() {
+function refreshDistrictLayerForView() {
   if (!state.districtLayer) return;
   state.districtLayer.eachLayer((layer) => {
     if (state.selectedDistrictLayer && state.selectedDistrictLayer === layer) {
@@ -606,7 +689,7 @@ function stateBoundaryStyle(feature) {
 
   if (state.mode === "national") {
     const rec = state.nationalByFips.get(normalizeStateFips(meta.fips));
-    const netPct = rec ? netPctForRecord(rec, state.statView) : null;
+    const netPct = rec ? netPctForRecord(rec, mapStat()) : null;
     return {
       color: "#1b2733",
       weight: 1.5,
@@ -721,16 +804,23 @@ function renderNationalOverview() {
 
 function renderModeUi() {
   const inState = state.mode === "state";
+  const inChrono = inState && !!state.chronoMode;
   houseChamberBtn.disabled = !inState;
   senateChamberBtn.disabled = !inState;
+  if (dailyChronoBtn) dailyChronoBtn.disabled = !inState;
+  if (cumulativeChronoBtn) cumulativeChronoBtn.disabled = !inState;
   exitStateBtn.hidden = !inState;
-  houseChamberBtn.classList.toggle("active-chamber", inState && state.chamber === "house");
-  senateChamberBtn.classList.toggle("active-chamber", inState && state.chamber === "senate");
+  houseChamberBtn.classList.toggle("active-chamber", inState && !inChrono && state.chamber === "house");
+  senateChamberBtn.classList.toggle("active-chamber", inState && !inChrono && state.chamber === "senate");
+  if (dailyChronoBtn) dailyChronoBtn.classList.toggle("active-chrono", inChrono && state.chronoMode === "daily");
+  if (cumulativeChronoBtn) cumulativeChronoBtn.classList.toggle("active-chrono", inChrono && state.chronoMode === "cumulative");
 }
 
 async function setChamber(chamber) {
   if (chamber !== "house" && chamber !== "senate") return;
-  if (state.chamber === chamber) return;
+  const exitingChrono = !!state.chronoMode;
+  if (state.chamber === chamber && !exitingChrono) return;
+  state.chronoMode = null;
   state.chamber = chamber;
   state.districtSort = { key: null, direction: 0 };
   renderModeUi();
@@ -741,8 +831,33 @@ async function setChamber(chamber) {
   }
 }
 
+function setChronoMode(mode) {
+  if (mode !== "daily" && mode !== "cumulative" && mode !== null) return;
+  if (state.mode !== "state" || state.chronoMode === mode) return;
+  state.chronoMode = mode;
+  clearSelectedDistrict();
+  map.closePopup();
+  renderModeUi();
+  showActiveStateSidebar();
+}
+
 function chamberLabel(chamber) {
   return chamber === "house" ? "Lower Chamber" : "Upper Chamber";
+}
+
+// Proper chamber name from District Explorer's state_chamber_names.json,
+// e.g. "VA|house" -> "VA House of Delegates" -> "Virginia House of Delegates".
+function chamberDisplayName(meta = state.selectedState, chamber = state.chamber) {
+  const abbr = normalizeStateAbbr(meta?.abbr || "");
+  const stateName = meta?.name || abbr || "State";
+  const raw = state.chamberNamesByState.get(`${abbr}|${chamber}`) || "";
+  if (raw) {
+    if (abbr && raw.toUpperCase().startsWith(`${abbr} `)) {
+      return `${stateName} ${raw.slice(abbr.length + 1)}`;
+    }
+    return raw;
+  }
+  return `${stateName} — ${chamberLabel(chamber)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -828,6 +943,10 @@ function renderDistrictLayerForSelectedState() {
 
   const selectedAbbr = normalizeStateAbbr(state.selectedState?.abbr || "");
   if (state.chamber === "house" && selectedAbbr === "NE") {
+    if (state.chronoMode) {
+      showChronoView();
+      return;
+    }
     state.detailsRenderToken += 1;
     detailsTitle.textContent = selectedStateChamberHeader();
     details.innerHTML = "Switch to Upper Chamber to view Nebraska's unicameral legislature.";
@@ -891,7 +1010,7 @@ function renderDistrictLayerForSelectedState() {
   ).addTo(map);
 
   scheduleDistrictNumberLayerBuild(selectedFeatures);
-  showStateChamberOverview();
+  showActiveStateSidebar();
 }
 
 function clearDistrictLayer() {
@@ -926,7 +1045,7 @@ function clearDistrictLayer() {
 function colorForFeature(feature, dataMap) {
   const rec = dataMap.get(extractJoinIds(feature.properties).key);
   if (!rec) return "#d5dae0";
-  return netColor(netPctForRecord(rec, state.statView));
+  return netColor(netPctForRecord(rec, mapStat()));
 }
 
 function districtBaseStyle(feature, dataMap) {
@@ -1057,7 +1176,7 @@ function initChamberOverviewButton() {
     }
     clearSelectedDistrict();
     if (state.mode === "state") {
-      showStateChamberOverview();
+      showActiveStateSidebar();
     }
   });
   container.appendChild(button);
@@ -1184,25 +1303,26 @@ function nationalOverviewHtml() {
   }
 
   const usTotals = {};
-  for (const stat of STAT_VIEWS) {
+  for (const stat of DETAIL_STATS) {
     usTotals[stat] = sumStatTotals(rows.map((r) => r.rec), stat);
   }
 
-  const headCells = STAT_VIEWS
+  const headCells = DETAIL_STATS
     .map((stat) => {
-      const selected = state.statView === stat ? " stat-col-selected" : "";
-      return `<th class="abev-sortable${selected}" data-sort-scope="national" data-sort-key="${stat}">${escapeHtml(STAT_SHORT_LABELS[stat])}${sortIndicator(state.nationalSort, stat)}</th>`;
+      const selected = mapStat() === stat ? " stat-col-selected" : "";
+      return `<th class="abev-sortable${selected}" data-sort-scope="national" data-sort-key="${stat}">${escapeHtml(DETAIL_STAT_SHORT[stat])}${sortIndicator(state.nationalSort, stat)}</th>`;
     })
     .join("");
 
-  const usCells = STAT_VIEWS
+  const usCells = DETAIL_STATS
     .map((stat) => {
       const t = usTotals[stat];
-      const selected = state.statView === stat ? " stat-col-selected" : "";
+      const selected = mapStat() === stat ? " stat-col-selected" : "";
+      const netPct = netPctFromTotals(t);
       return `
         <td class="stat-cell${selected}">
           <span class="stat-cell-count">${escapeHtml(formatCount(t.total))}</span>
-          <span class="stat-cell-net ${netClass(t.net)}">${escapeHtml(formatNet(t.net))}</span>
+          <span class="stat-cell-net ${netClass(netPct)}">${escapeHtml(formatNetPct(netPct))}</span>
         </td>
       `;
     })
@@ -1210,7 +1330,7 @@ function nationalOverviewHtml() {
 
   const body = rows
     .map((row) => {
-      const cells = STAT_VIEWS.map((stat) => statCellHtml(row.rec, stat)).join("");
+      const cells = DETAIL_STATS.map((stat) => statCellHtml(row.rec, stat)).join("");
       return `
         <tr class="target-row state-select-row" data-state-key="${escapeHtml(row.stateKey)}">
           <td class="abev-name-cell">${escapeHtml(row.stateName)}</td>
@@ -1291,8 +1411,11 @@ function setDetailsLoading(message) {
 }
 
 function selectedStateChamberHeader() {
-  const name = state.selectedState?.name || state.selectedState?.abbr || "State";
-  return `${name} — ${chamberLabel(state.chamber)}`;
+  if (state.chronoMode) {
+    const name = state.selectedState?.name || state.selectedState?.abbr || "State";
+    return `${name} — ${state.chronoMode === "daily" ? "Daily" : "Cumulative"}`;
+  }
+  return chamberDisplayName();
 }
 
 function showStateChamberOverview(options = {}) {
@@ -1308,19 +1431,23 @@ function showStateChamberOverview(options = {}) {
   });
 }
 
-function stateChamberOverviewHtml() {
+function statewideCardsHtml() {
   const fips = normalizeStateFips(state.selectedState?.fips);
   const statewideRec = state.nationalByFips.get(fips) || null;
 
-  const cards = STAT_VIEWS
-    .map((stat) => {
+  const cards = ABEV_VIEWS
+    .map((view) => {
+      const stat = VIEW_MAP_STAT[view];
       const totals = statewideRec ? statTotals(statewideRec, stat) : null;
-      const selected = state.statView === stat ? " stat-card-selected" : "";
-      const value = totals ? formatCount(totals.total) : "—";
-      const net = totals ? `<span class="stat-card-net ${netClass(totals.net)}">${escapeHtml(formatNet(totals.net))}</span>` : "";
+      const selected = state.abevView === view ? " stat-card-selected" : "";
+      const value = totals && totals.total > 0 ? formatCount(totals.total) : "—";
+      const netPct = netPctFromTotals(totals);
+      const net = typeof netPct === "number"
+        ? `<span class="stat-card-net ${netClass(netPct)}">${escapeHtml(formatNetPct(netPct))}</span>`
+        : "";
       return `
-        <div class="stat-card${selected}">
-          <span class="stat-card-label">${escapeHtml(STAT_SHORT_LABELS[stat])}</span>
+        <div class="stat-card${selected}" data-view="${view}" role="button" tabindex="0" title="Switch to ${escapeHtml(VIEW_CARD_LABELS[view])} view">
+          <span class="stat-card-label">${escapeHtml(VIEW_CARD_LABELS[view])}</span>
           <span class="stat-card-value">${escapeHtml(value)}</span>
           ${net}
         </div>
@@ -1328,52 +1455,92 @@ function stateChamberOverviewHtml() {
     })
     .join("");
 
-  const rows = districtRowsForSelectedState();
-  let tableHtml = '<div class="loading-indicator">No district-level ABEV data for this chamber.</div>';
-  if (rows.length) {
-    const headCells = STAT_VIEWS
-      .map((stat) => {
-        const selected = state.statView === stat ? " stat-col-selected" : "";
-        return `<th class="abev-sortable${selected}" data-sort-scope="district" data-sort-key="${stat}">${escapeHtml(STAT_SHORT_LABELS[stat])}${sortIndicator(state.districtSort, stat)}</th>`;
-      })
-      .join("");
+  return `<div class="statewide-stats-grid three-cards">${cards}</div>`;
+}
 
-    const body = rows
-      .map((row) => {
-        const cells = STAT_VIEWS.map((stat) => statCellHtml(row.rec, stat)).join("");
-        return `
-          <tr class="target-row district-select-row" data-join-key="${escapeHtml(row.joinKey)}">
-            <td class="abev-name-cell">${escapeHtml(row.label)}</td>
-            ${cells}
-          </tr>
-        `;
-      })
-      .join("");
-
-    tableHtml = `
-      <table class="abev-table">
-        <thead>
-          <tr>
-            <th class="abev-sortable" data-sort-scope="district" data-sort-key="district">Dist${sortIndicator(state.districtSort, "district")}</th>
-            ${headCells}
-          </tr>
-        </thead>
-        <tbody>${body}</tbody>
-      </table>
-    `;
+// Column layouts per view. "gap" entries render as thin separator columns.
+function viewColumnDefs(view) {
+  if (view === "ab") {
+    return [
+      { type: "gap" },
+      { key: "requested", kind: "count", label: "Requested", sortKey: "requested" },
+      { key: "requested", kind: "margin", label: "Requested Margin", sortKey: "requested_margin" },
+      { type: "gap" },
+      { key: "returned", kind: "count", label: "Returned", sortKey: "returned" },
+      { key: "returned", kind: "margin", label: "Returned Margin", sortKey: "returned_margin" },
+    ];
   }
+  if (view === "ev") {
+    return [
+      { type: "gap" },
+      { key: "ev", kind: "count", label: "Early Votes", sortKey: "ev" },
+      { key: "ev", kind: "margin", label: "Early Votes Margin", sortKey: "ev_margin" },
+    ];
+  }
+  return [
+    { type: "gap" },
+    { key: "returned", kind: "count", label: "Absentees Returned", sortKey: "returned" },
+    { key: "ev", kind: "count", label: "Early Votes", sortKey: "ev" },
+    { type: "gap" },
+    { key: "voted", kind: "count", label: "Total Votes", sortKey: "voted" },
+    { key: "voted", kind: "margin", label: "ABEV Margin", sortKey: "voted_margin" },
+  ];
+}
 
-  const statewideNote = statewideRec
-    ? '<div class="detail-meta-muted">Statewide totals include voters not matched to a district.</div>'
-    : '<div class="detail-meta-muted">No statewide ABEV data for this state.</div>';
+function districtTableHtml() {
+  const rows = districtRowsForSelectedState();
+  if (!rows.length) {
+    return '<div class="loading-indicator">No district-level ABEV data for this chamber.</div>';
+  }
+  const cols = viewColumnDefs(state.abevView);
+
+  const headCells = cols
+    .map((col) => {
+      if (col.type === "gap") return '<th class="abev-gap-cell"></th>';
+      return `<th class="abev-sortable" data-sort-scope="district" data-sort-key="${col.sortKey}">${escapeHtml(col.label)}${sortIndicator(state.districtSort, col.sortKey)}</th>`;
+    })
+    .join("");
+
+  const body = rows
+    .map((row) => {
+      const cells = cols
+        .map((col) => {
+          if (col.type === "gap") return '<td class="abev-gap-cell"></td>';
+          const totals = row.rec ? statTotals(row.rec, col.key) : null;
+          if (col.kind === "count") {
+            return `<td class="abev-count-cell">${totals ? escapeHtml(formatCount(totals.total)) : "—"}</td>`;
+          }
+          return marginCellHtml(netPctFromTotals(totals));
+        })
+        .join("");
+      return `
+        <tr class="target-row district-select-row" data-join-key="${escapeHtml(row.joinKey)}">
+          <td class="abev-name-cell">${escapeHtml(row.label)}</td>
+          ${cells}
+        </tr>
+      `;
+    })
+    .join("");
 
   return `
-    <div class="detail-section-title centered-section-title">Statewide Totals</div>
-    <div class="statewide-stats-grid">${cards}</div>
-    ${statewideNote}
+    <table class="abev-table">
+      <thead>
+        <tr>
+          <th class="abev-sortable abev-name-head" data-sort-scope="district" data-sort-key="district">Dist${sortIndicator(state.districtSort, "district")}</th>
+          ${headCells}
+        </tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table>
+  `;
+}
+
+function stateChamberOverviewHtml() {
+  return `
+    ${statewideCardsHtml()}
     <div class="detail-break"></div>
     <div class="detail-section-title centered-section-title">Districts</div>
-    ${tableHtml}
+    ${districtTableHtml()}
   `;
 }
 
@@ -1395,8 +1562,15 @@ function districtRowsForSelectedState() {
   return applySort(rows, state.districtSort, (row, key) => {
     if (key === "district") return row.sortValue;
     if (!row.rec) return Number.NEGATIVE_INFINITY;
-    const totals = statTotals(row.rec, key);
-    return totals ? totals.total : Number.NEGATIVE_INFINITY;
+    const isMargin = key.endsWith("_margin");
+    const stat = isMargin ? key.slice(0, -"_margin".length) : key;
+    const totals = statTotals(row.rec, stat);
+    if (!totals) return Number.NEGATIVE_INFINITY;
+    if (isMargin) {
+      const netPct = netPctFromTotals(totals);
+      return typeof netPct === "number" ? netPct : Number.NEGATIVE_INFINITY;
+    }
+    return totals.total;
   });
 }
 
@@ -1413,6 +1587,197 @@ function compareDistrictLabels(a, b) {
   if (typeof av === "number") return -1;
   if (typeof bv === "number") return 1;
   return String(av).localeCompare(String(bv));
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar: chronological views (Daily / Cumulative)
+// ---------------------------------------------------------------------------
+
+const CHRONO_STATS = ["requested", "returned", "ev"];
+
+function showChronoView() {
+  if (state.mode !== "state" || !state.selectedState || !state.chronoMode) return;
+  state.detailsRenderToken += 1;
+  const renderToken = state.detailsRenderToken;
+  detailsTitle.textContent = selectedStateChamberHeader();
+  requestAnimationFrame(() => {
+    if (state.mode !== "state" || !state.chronoMode || renderToken !== state.detailsRenderToken) return;
+    details.innerHTML = chronoViewHtml();
+    wireDetailsInteractions();
+    resetSidebarScroll();
+  });
+}
+
+function chronoViewHtml() {
+  const title = state.chronoMode === "daily" ? "Daily Activity" : "Cumulative Totals";
+  return `
+    ${statewideCardsHtml()}
+    <div class="detail-break"></div>
+    <div class="detail-section-title centered-section-title">${escapeHtml(title)}</div>
+    ${chronoTableHtml()}
+  `;
+}
+
+function timelineEntriesForSelectedState() {
+  const fips = normalizeStateFips(state.selectedState?.fips);
+  const rec = state.timelineByFips.get(fips);
+  if (!rec) return null;
+  // dateKey -> { requested: {rep,dem,toss}, returned: {...}, ev: {...} }
+  const byDate = new Map();
+  for (const stat of CHRONO_STATS) {
+    for (const row of rec[stat] || []) {
+      const key = String(row.date || "unknown");
+      if (!byDate.has(key)) byDate.set(key, {});
+      byDate.get(key)[stat] = {
+        rep: Number(row.rep || 0),
+        dem: Number(row.dem || 0),
+        toss: Number(row.toss || 0),
+      };
+    }
+  }
+  return byDate;
+}
+
+function emptyChronoStats() {
+  const empty = () => ({ rep: 0, dem: 0, toss: 0 });
+  return { requested: empty(), returned: empty(), ev: empty() };
+}
+
+function addChronoStats(target, stats) {
+  for (const stat of CHRONO_STATS) {
+    const buckets = stats?.[stat];
+    if (!buckets) continue;
+    target[stat].rep += buckets.rep;
+    target[stat].dem += buckets.dem;
+    target[stat].toss += buckets.toss;
+  }
+  return target;
+}
+
+function chronoStatsHaveData(stats) {
+  return CHRONO_STATS.some((stat) => stats[stat].rep + stats[stat].dem + stats[stat].toss > 0);
+}
+
+function chronoRows() {
+  const byDate = timelineEntriesForSelectedState();
+  if (!byDate || !byDate.size) return [];
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  const dateKeys = [];
+  let pre = null;
+  let unknown = null;
+  for (const [key, stats] of byDate) {
+    if (key === "pre2026") {
+      pre = stats;
+      continue;
+    }
+    if (key === "unknown") {
+      unknown = stats;
+      continue;
+    }
+    if (key > todayIso) continue; // never display future dates
+    dateKeys.push(key);
+  }
+  dateKeys.sort();
+
+  if (state.chronoMode === "daily") {
+    const rows = dateKeys
+      .map((key) => ({ label: chronoDateLabel(key), stats: addChronoStats(emptyChronoStats(), byDate.get(key)), special: false }))
+      .reverse(); // newest first
+    if (pre) rows.push({ label: "Pre-2026", stats: addChronoStats(emptyChronoStats(), pre), special: true });
+    if (unknown) rows.push({ label: "Unknown", stats: addChronoStats(emptyChronoStats(), unknown), special: true });
+    return rows;
+  }
+
+  // Cumulative: pre-2026 + unknown form the baseline so the newest row
+  // accounts for every vote recorded to date.
+  const baseline = emptyChronoStats();
+  if (pre) addChronoStats(baseline, pre);
+  if (unknown) addChronoStats(baseline, unknown);
+  const running = addChronoStats(emptyChronoStats(), baseline);
+  const rows = [];
+  for (const key of dateKeys) {
+    addChronoStats(running, byDate.get(key));
+    rows.push({ label: chronoDateLabel(key), stats: structuredClone(running), special: false });
+  }
+  rows.reverse(); // newest (= all-time total) first
+  if (chronoStatsHaveData(baseline)) {
+    rows.push({ label: "Pre-2026 & Unk", stats: baseline, special: true });
+  }
+  return rows;
+}
+
+function chronoDateLabel(isoDate) {
+  const m = String(isoDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return isoDate;
+  return `${Number(m[2])}/${Number(m[3])}`;
+}
+
+function chronoStatTotals(stats, stat) {
+  const get = (key) => stats[key] || { rep: 0, dem: 0, toss: 0 };
+  let buckets;
+  if (stat === "voted") {
+    const returned = get("returned");
+    const ev = get("ev");
+    buckets = { rep: returned.rep + ev.rep, dem: returned.dem + ev.dem, toss: returned.toss + ev.toss };
+  } else {
+    buckets = get(stat);
+  }
+  const total = buckets.rep + buckets.dem + buckets.toss;
+  return { ...buckets, total, net: buckets.rep - buckets.dem };
+}
+
+function chronoTableHtml() {
+  const rows = chronoRows();
+  if (!rows.length) {
+    return '<div class="loading-indicator">No chronological ABEV data for this state.</div>';
+  }
+  const cols = viewColumnDefs(state.abevView);
+
+  const headCells = cols
+    .map((col) => {
+      if (col.type === "gap") return '<th class="abev-gap-cell"></th>';
+      return `<th>${escapeHtml(col.label)}</th>`;
+    })
+    .join("");
+
+  const body = rows
+    .map((row) => {
+      const dataCols = cols.filter((col) => col.type !== "gap");
+      const allZero = dataCols.every((col) => chronoStatTotals(row.stats, col.key).total === 0);
+      if (allZero && state.chronoMode === "daily" && !row.special) return "";
+      if (allZero && row.special) return "";
+      const cells = cols
+        .map((col) => {
+          if (col.type === "gap") return '<td class="abev-gap-cell"></td>';
+          const totals = chronoStatTotals(row.stats, col.key);
+          if (col.kind === "count") {
+            return `<td class="abev-count-cell">${escapeHtml(formatCount(totals.total))}</td>`;
+          }
+          const netPct = totals.total > 0 ? (totals.net / totals.total) * 100 : null;
+          return marginCellHtml(netPct);
+        })
+        .join("");
+      return `
+        <tr class="target-row${row.special ? " chrono-special-row" : ""}">
+          <td class="chrono-date-cell">${escapeHtml(row.label)}</td>
+          ${cells}
+        </tr>
+      `;
+    })
+    .join("");
+
+  return `
+    <table class="abev-table">
+      <thead>
+        <tr>
+          <th class="abev-name-head">Date</th>
+          ${headCells}
+        </tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table>
+  `;
 }
 
 // ---------------------------------------------------------------------------
@@ -1461,7 +1826,7 @@ function toggleSort(sortState, key) {
 
 function showDistrictDetailPanel(properties, joinInfo, rec) {
   state.detailsRenderToken += 1;
-  detailsTitle.textContent = selectedStateChamberHeader();
+  detailsTitle.textContent = chamberDisplayName();
   details.innerHTML = districtDetailHtml(properties, joinInfo, rec);
   wireDetailsInteractions();
   resetSidebarScroll();
@@ -1486,11 +1851,11 @@ function districtDetailHtml(properties, joinInfo, rec) {
     `;
   }
 
-  const rows = STAT_VIEWS
+  const rows = DETAIL_STATS
     .map((stat) => {
       const totals = statTotals(rec, stat);
       if (!totals) return "";
-      const selected = state.statView === stat ? ' class="detail-row-selected"' : "";
+      const selected = mapStat() === stat ? ' class="detail-row-selected"' : "";
       return `
         <tr${selected}>
           <td>${escapeHtml(STAT_LABELS[stat])}</td>
@@ -1498,7 +1863,7 @@ function districtDetailHtml(properties, joinInfo, rec) {
           <td class="detail-cell-rep">${escapeHtml(formatCount(totals.rep))}</td>
           <td class="detail-cell-dem">${escapeHtml(formatCount(totals.dem))}</td>
           <td class="detail-cell-toss">${escapeHtml(formatCount(totals.toss))}</td>
-          <td>${netHtml(totals.net)}</td>
+          <td>${netPctHtml(netPctFromTotals(totals))}</td>
         </tr>
       `;
     })
@@ -1509,7 +1874,7 @@ function districtDetailHtml(properties, joinInfo, rec) {
   if (voted && voted.total > 0) {
     compositionHtml = stackedBreakdownHtml("Total Votes Cast by Modeled Party", [
       { label: "GOP", value: (voted.rep / voted.total) * 100, colorClass: "color-net-r" },
-      { label: "Toss-up", value: (voted.toss / voted.total) * 100, colorClass: "color-net-toss" },
+      { label: "Swing", value: (voted.toss / voted.total) * 100, colorClass: "color-net-toss" },
       { label: "Dem", value: (voted.dem / voted.total) * 100, colorClass: "color-net-d" },
     ], { legendColumns: 3 });
   }
@@ -1532,7 +1897,7 @@ function districtDetailHtml(properties, joinInfo, rec) {
     <div class="detail-break"></div>
     <table class="abev-detail-table">
       <thead>
-        <tr><th></th><th>Total</th><th>GOP</th><th>Dem</th><th>Toss-up</th><th>Net</th></tr>
+        <tr><th></th><th>Total</th><th>GOP</th><th>Dem</th><th>Swing</th><th>Margin</th></tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>
@@ -1546,16 +1911,16 @@ function districtDetailHtml(properties, joinInfo, rec) {
 // ---------------------------------------------------------------------------
 
 function hoverStatTableHtml(rec) {
-  const rows = STAT_VIEWS
+  const rows = DETAIL_STATS
     .map((stat) => {
       const totals = statTotals(rec, stat);
       if (!totals) return "";
-      const selected = state.statView === stat ? ' class="hover-stat-selected"' : "";
+      const selected = mapStat() === stat ? ' class="hover-stat-selected"' : "";
       return `
         <tr${selected}>
-          <td>${escapeHtml(STAT_SHORT_LABELS[stat])}</td>
+          <td>${escapeHtml(DETAIL_STAT_SHORT[stat])}</td>
           <td>${escapeHtml(formatCount(totals.total))}</td>
-          <td>${netHtml(totals.net)}</td>
+          <td>${netPctHtml(netPctFromTotals(totals))}</td>
         </tr>
       `;
     })
@@ -1620,6 +1985,12 @@ function wireDetailsInteractions() {
   details.addEventListener("click", async (event) => {
     const targetEl = event.target instanceof Element ? event.target : null;
     if (!targetEl) return;
+
+    const viewCard = targetEl.closest(".stat-card[data-view]");
+    if (viewCard) {
+      setAbevView(String(viewCard.dataset.view || ""));
+      return;
+    }
 
     const sortHeader = targetEl.closest("th.abev-sortable[data-sort-key]");
     if (sortHeader) {
