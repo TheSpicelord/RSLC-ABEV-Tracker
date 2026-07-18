@@ -1,0 +1,10 @@
+# Credentials — never commit
+scripts/db_config.ini
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+Thumbs.db
+.DS_Store

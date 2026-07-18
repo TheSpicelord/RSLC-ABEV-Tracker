@@ -1,0 +1,11 @@
+export const houseChamberBtn = document.getElementById("houseChamberBtn");
+export const senateChamberBtn = document.getElementById("senateChamberBtn");
+export const statViewButtons = document.getElementById("statViewButtons");
+export const stateSelect = document.getElementById("stateSelect");
+export const exitStateBtn = document.getElementById("exitStateBtn");
+export const updatedBadge = document.getElementById("updatedBadge");
+export const sampleBadge = document.getElementById("sampleBadge");
+export const statusText = document.getElementById("statusText");
+export const detailsTitle = document.getElementById("detailsTitle");
+export const details = document.getElementById("details");
+export const sidebarEl = details?.closest?.(".sidebar") || document.querySelector(".sidebar");

@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/dclar/OneDrive/Documents/Work/2025.02 - RSLC RPD/Coding Projects/**)",
+      "Read(//c/Users/dclar/OneDrive/Documents/Work/2025.02 - RSLC RPD/Coding Projects/RSLC-District-Explorer/**)",
+      "Bash(mkdir -p data/shapes data/abev modules scripts/sql)",
+      "Bash(cp __TRACKED_VAR__/data/shapes/states.zip __TRACKED_VAR__/data/shapes/house.zip __TRACKED_VAR__/data/shapes/senate.zip __TRACKED_VAR__/data/shapes/nh_house_floterial.zip data/shapes/)",
+      "Bash(cp '__TRACKED_VAR__/data/RSLC Logo.png' data/)",
+      "Bash(cp __TRACKED_VAR__/modules/auth.js modules/)",
+      "Bash(cp __TRACKED_VAR__/style.css style.css)",
+      "Bash(python -c ' *)",
+      "Bash(python scripts/generate_sample_data.py)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit -q -m 'Initial build: map/table site ported from District Explorer, sample ABEV data, SQL update pipeline skeleton *)"
+    ]
+  }
+}
