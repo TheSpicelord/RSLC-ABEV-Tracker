@@ -67,8 +67,10 @@ Chamber file (`data/abev/va_house.json`):
 { "state_fips": "51", "state_abbr": "VA", "chamber": "house", "updated": "2026-07-18",
   "districts": [ { "district_id": "001",
     "requested": {"rep": 0, "dem": 0, "toss": 0},
-    "returned": {...}, "ev": {...} } ] }
+    "returned": {...}, "ev": {...},
+    "timeline": {"requested": [{"date": "2026-03-06", "rep": 0, "dem": 0, "toss": 0}], "returned": [...], "ev": [...]} } ] }
 ```
+District `timeline` powers the Daily/Cumulative table in the district detail panel (toggle via `state.detailChronoMode`).
 - `national.json`: `{updated, states: [{state_fips, state_abbr, state_name, requested: {...}, returned, ev}]}` — authoritative statewide totals
 - `timeline.json`: `{updated, states: {fips: {stat: [{date, rep, dem, toss}]}}}` — date keys are ISO dates plus `"pre2026"` (first) and `"unknown"` (last). **Not yet rendered by the site** — plumbing for future trend charts.
 - `abev_files.json`: index consumed by the site (`house[]`, `senate[]`, `national`, `timeline`)
@@ -88,7 +90,7 @@ Chamber file (`data/abev/va_house.json`):
 - **Three views** (keys 1–3, topbar buttons + clickable sidebar cards): `ab` (Absentee Votes: Requested/Returned columns), `ev` (Early Votes), `abev` (ABEV Totals: Returned/EV/Total — the default). Each view maps to a coloring stat via `VIEW_MAP_STAT` (`returned`/`ev`/`voted`); map + column highlights follow it.
 - **Margins are always percentages** of the stat total, positive = R. Two renderings: `formatNetPct` → "R+5.4"/"D+3.2"/"EVEN" (cards, hover, detail), and `marginCellHtml` → DE-style colored cell "+5.4"/"-3.2". Party buckets display as GOP / Dem / **Swing** (data key remains `toss`).
 - District tables: raw count columns + margin cells, thin gap columns (`abev-gap-cell`) separating groups, wrapped two-line sortable headers (count and margin columns sort independently).
-- **Daily / Cumulative chrono views**: topbar buttons next to chamber buttons (aqua `active-chrono` style), state mode only, built from `timeline.json` (statewide — no chamber/district breakdown). Rows newest-first as M/D; "Pre-2026"/"Unknown" rows at bottom (Daily) or folded into a baseline row (Cumulative) so the newest cumulative row equals the all-time total. Future dates never displayed. Switching chamber exits chrono.
+- **Daily / Cumulative chrono views**: topbar buttons stacked under the chamber buttons (aqua `active-chrono` style), state mode only, built from `timeline.json` (statewide). Rows newest-first as M/D. Everything outside the state's ABEV window — before it opens (`ABEV_START_OVERRIDES`), after election day (`ELECTION_DAY_OVERRIDES`, default Nov 3), bad/unknown dates, pre-2026 — folds into a single **"Earlier"** row ("Unk" in district detail tables), which is the running-total baseline in Cumulative so the newest row equals the all-time total. Switching chamber exits chrono.
 - Sidebar headers use proper chamber names from `data/state_chamber_names.json` (`"VA|house"` → "Virginia House of Delegates").
 - National view: states colored by statewide net of the view's stat (no data = dimmed); sidebar table US totals row + per-state rows with all four stats (count + margin%), sortable, hover syncs map.
 - Click district → detail panel (Total/GOP/Dem/Swing/Margin per stat, AB return rate = returned/requested, EV share, stacked bar).
