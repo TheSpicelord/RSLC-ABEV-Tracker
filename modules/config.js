@@ -60,6 +60,13 @@ export const ELECTION_DAY_OVERRIDES = {
   "55": "2026-04-07", // WI Supreme Court (test data)
 };
 
+// First day of each state's ABEV window; chrono tables fold anything earlier
+// into the "Earlier" row. TODO: fill in from a full state-by-state table.
+export const ABEV_START_OVERRIDES = {
+  "51": "2026-03-06", // VA (test)
+  "55": "2026-03-17", // WI (test)
+};
+
 export const STATE_NAME_TO_ABBR = {
   ALABAMA: "AL",
   ALASKA: "AK",

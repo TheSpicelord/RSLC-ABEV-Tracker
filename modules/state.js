@@ -3,6 +3,7 @@ export const state = {
   chamber: "house",
   abevView: "abev",
   chronoMode: null,
+  detailChronoMode: "daily",
   selectedState: null,
 
   // Geometry

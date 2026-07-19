@@ -2774,3 +2774,39 @@ html.auth-pending main {
   padding-left: 0.5rem;
   padding-right: 0.5rem;
 }
+
+/* --- Full table frame --- */
+.abev-table {
+  border: 1px solid var(--border);
+}
+
+/* --- District detail Daily/Cumulative toggle --- */
+.detail-chrono-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 0.4rem;
+  margin: 0.15rem 0 0.55rem;
+}
+
+.detail-chrono-btn {
+  margin-left: 0;
+  padding: 0.3rem 0.95rem;
+  background: #2f3f51;
+  border: 1px solid #566b82;
+  color: #dce7f4;
+  font-weight: 700;
+  font-size: 0.85rem;
+  border-radius: 8px;
+  transition: transform 120ms ease, box-shadow 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+
+.detail-chrono-btn:hover {
+  transform: translateY(-1px);
+}
+
+.detail-chrono-btn.active-chrono {
+  background: linear-gradient(180deg, #0d97a8 0%, #086b7a 100%);
+  border-color: #6fe3f2;
+  color: #ffffff;
+  box-shadow: 0 0 0 1px rgba(140, 235, 250, 0.35), 0 0 12px rgba(20, 180, 201, 0.4);
+}

@@ -2,6 +2,7 @@ import { requireAuth } from "./modules/auth.js";
 import {
   ABEV_INDEX_URL,
   ABEV_NATIONAL_URL,
+  ABEV_START_OVERRIDES,
   ABEV_TIMELINE_URL,
   ABEV_VIEWS,
   AUTH_ENABLED,
@@ -43,7 +44,7 @@ if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260718e";
+const BUILD_VERSION = "20260718f";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -1494,9 +1495,13 @@ function columnLabelHtml(col) {
   return (col.label || []).map((line) => escapeHtml(line)).join("<br>");
 }
 
-// Columns immediately to the right of a gap get a left border line.
+// Columns flanking a gap get border lines on the gap side, so every vertical
+// break is framed on both sides.
 function columnVlineClass(cols, idx) {
-  return idx > 0 && cols[idx - 1]?.type === "gap" ? " abev-vline-left" : "";
+  let cls = "";
+  if (idx > 0 && cols[idx - 1]?.type === "gap") cls += " abev-vline-left";
+  if (cols[idx + 1]?.type === "gap") cls += " abev-vline-right";
+  return cls;
 }
 
 function districtTableHtml() {
@@ -1627,7 +1632,7 @@ function chronoViewHtml() {
     ${statewideCardsHtml()}
     <div class="detail-break"></div>
     <div class="detail-section-title centered-section-title">${escapeHtml(title)}</div>
-    ${chronoTableHtml()}
+    ${chronoTableHtml(chronoRows(), state.chronoMode)}
   `;
 }
 
@@ -1636,14 +1641,22 @@ function electionDayForSelectedState() {
   return ELECTION_DAY_OVERRIDES[fips] || DEFAULT_ELECTION_DAY;
 }
 
-function timelineEntriesForSelectedState() {
+function abevStartForSelectedState() {
   const fips = normalizeStateFips(state.selectedState?.fips);
-  const rec = state.timelineByFips.get(fips);
-  if (!rec) return null;
-  // dateKey -> { requested: {rep,dem,toss}, returned: {...}, ev: {...} }
+  return ABEV_START_OVERRIDES[fips] || null;
+}
+
+function localTodayIso() {
+  return new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD in local time
+}
+
+// Convert a stored timeline record ({stat: [{date, rep, dem, toss}]}) into
+// dateKey -> {stat: buckets}. Works for both statewide and district timelines.
+function chronoByDate(tlRec) {
+  if (!tlRec) return null;
   const byDate = new Map();
   for (const stat of CHRONO_STATS) {
-    for (const row of rec[stat] || []) {
+    for (const row of tlRec[stat] || []) {
       const key = String(row.date || "unknown");
       if (!byDate.has(key)) byDate.set(key, {});
       byDate.get(key)[stat] = {
@@ -1676,59 +1689,52 @@ function chronoStatsHaveData(stats) {
   return CHRONO_STATS.some((stat) => stats[stat].rep + stats[stat].dem + stats[stat].toss > 0);
 }
 
-function chronoRows() {
-  const byDate = timelineEntriesForSelectedState();
+// Build display rows from a timeline. Everything outside the state's ABEV
+// window (before it opens, after election day, unknown/bad dates, pre-2026)
+// folds into a single "Earlier" bucket so totals always account for every
+// vote. In cumulative mode that bucket is the running-total baseline.
+function buildChronoRows(byDate, mode, earlierLabel) {
   if (!byDate || !byDate.size) return [];
-  const todayIso = new Date().toISOString().slice(0, 10);
-  // Never display dates past election day (or the future); fold those counts
-  // into Unknown so cumulative totals still account for every vote.
-  const cutoffIso = electionDayForSelectedState() < todayIso ? electionDayForSelectedState() : todayIso;
+  const todayIso = localTodayIso();
+  const electionDay = electionDayForSelectedState();
+  const cutoffIso = electionDay < todayIso ? electionDay : todayIso;
+  const startIso = abevStartForSelectedState();
 
+  const earlier = emptyChronoStats();
   const dateKeys = [];
-  let pre = null;
-  let unknown = null;
   for (const [key, stats] of byDate) {
-    if (key === "pre2026") {
-      pre = stats;
-      continue;
-    }
-    if (key === "unknown") {
-      unknown = stats;
-      continue;
-    }
-    if (key > cutoffIso) {
-      unknown = addChronoStats(unknown ? addChronoStats(emptyChronoStats(), unknown) : emptyChronoStats(), stats);
+    const isDate = /^\d{4}-\d{2}-\d{2}$/.test(key);
+    if (!isDate || key > cutoffIso || (startIso && key < startIso)) {
+      addChronoStats(earlier, stats);
       continue;
     }
     dateKeys.push(key);
   }
   dateKeys.sort();
+  const hasEarlier = chronoStatsHaveData(earlier);
 
-  if (state.chronoMode === "daily") {
+  if (mode === "daily") {
     const rows = dateKeys
       .map((key) => ({ label: chronoDateLabel(key), stats: addChronoStats(emptyChronoStats(), byDate.get(key)), special: false }))
       .reverse(); // newest first
-    if (pre) rows.push({ label: "Pre-2026", stats: addChronoStats(emptyChronoStats(), pre), special: true });
-    if (unknown) rows.push({ label: "Unknown", stats: addChronoStats(emptyChronoStats(), unknown), special: true });
+    if (hasEarlier) rows.push({ label: earlierLabel, stats: earlier, special: true });
     return rows;
   }
 
-  // Cumulative: pre-2026 + unknown form the baseline so the newest row
-  // accounts for every vote recorded to date.
-  const baseline = emptyChronoStats();
-  if (pre) addChronoStats(baseline, pre);
-  if (unknown) addChronoStats(baseline, unknown);
-  const running = addChronoStats(emptyChronoStats(), baseline);
+  const running = addChronoStats(emptyChronoStats(), earlier);
   const rows = [];
   for (const key of dateKeys) {
     addChronoStats(running, byDate.get(key));
     rows.push({ label: chronoDateLabel(key), stats: structuredClone(running), special: false });
   }
   rows.reverse(); // newest (= all-time total) first
-  if (chronoStatsHaveData(baseline)) {
-    rows.push({ label: "Pre-2026 & Unk", stats: baseline, special: true });
-  }
+  if (hasEarlier) rows.push({ label: earlierLabel, stats: earlier, special: true });
   return rows;
+}
+
+function chronoRows() {
+  const fips = normalizeStateFips(state.selectedState?.fips);
+  return buildChronoRows(chronoByDate(state.timelineByFips.get(fips)), state.chronoMode, "Earlier");
 }
 
 function chronoDateLabel(isoDate) {
@@ -1751,10 +1757,9 @@ function chronoStatTotals(stats, stat) {
   return { ...buckets, total, net: buckets.rep - buckets.dem };
 }
 
-function chronoTableHtml() {
-  const rows = chronoRows();
+function chronoTableHtml(rows, mode) {
   if (!rows.length) {
-    return '<div class="loading-indicator">No chronological ABEV data for this state.</div>';
+    return '<div class="loading-indicator">No chronological ABEV data available.</div>';
   }
   const cols = viewColumnDefs(state.abevView);
 
@@ -1769,7 +1774,7 @@ function chronoTableHtml() {
     .map((row) => {
       const dataCols = cols.filter((col) => col.type !== "gap");
       const allZero = dataCols.every((col) => chronoStatTotals(row.stats, col.key).total === 0);
-      if (allZero && state.chronoMode === "daily" && !row.special) return "";
+      if (allZero && mode === "daily" && !row.special) return "";
       if (allZero && row.special) return "";
       const cells = cols
         .map((col, idx) => {
@@ -1924,6 +1929,24 @@ function districtDetailHtml(properties, joinInfo, rec) {
     </table>
     ${rateLines.length ? `<div class="detail-meta">${rateLines.join("<br/>")}</div><div class="detail-break"></div>` : ""}
     ${compositionHtml}
+    ${districtChronoSectionHtml(rec)}
+  `;
+}
+
+function districtChronoSectionHtml(rec) {
+  const byDate = chronoByDate(rec?.timeline);
+  if (!byDate || !byDate.size) return "";
+  const mode = state.detailChronoMode;
+  const rows = buildChronoRows(byDate, mode, "Unk");
+  const button = (value, label) =>
+    `<button type="button" class="detail-chrono-btn${mode === value ? " active-chrono" : ""}" data-detail-chrono="${value}">${label}</button>`;
+  return `
+    <div class="detail-section-title centered-section-title">${mode === "daily" ? "Daily Returns" : "Cumulative Returns"}</div>
+    <div class="detail-chrono-buttons">
+      ${button("daily", "Daily")}
+      ${button("cumulative", "Cumulative")}
+    </div>
+    ${chronoTableHtml(rows, mode)}
   `;
 }
 
@@ -2010,6 +2033,21 @@ function wireDetailsInteractions() {
     const viewCard = targetEl.closest(".stat-card[data-view]");
     if (viewCard) {
       setAbevView(String(viewCard.dataset.view || ""));
+      return;
+    }
+
+    const detailChronoBtn = targetEl.closest("[data-detail-chrono]");
+    if (detailChronoBtn) {
+      const mode = String(detailChronoBtn.dataset.detailChrono || "");
+      if ((mode === "daily" || mode === "cumulative") && mode !== state.detailChronoMode) {
+        state.detailChronoMode = mode;
+        const layer = state.selectedDistrictLayer;
+        const feature = layer?.__featureRef;
+        if (feature) {
+          const joinInfo = extractJoinIds(feature.properties);
+          showDistrictDetailPanel(feature.properties, joinInfo, layer.__dataMapRef?.get(joinInfo.key));
+        }
+      }
       return;
     }
 

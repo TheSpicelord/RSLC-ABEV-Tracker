@@ -197,10 +197,17 @@ def pull_state(conn, abbr, today):
     rows = cursor.fetchall()
     print(f"[{abbr}] {len(rows):,} aggregate rows returned.")
 
+    election_day = model.get("election_day", DEFAULT_ELECTION_DAY)
     house = defaultdict(empty_stat_buckets)
     senate = defaultdict(empty_stat_buckets)
     statewide = empty_stat_buckets()
     timeline = {s: defaultdict(lambda: {b: 0 for b in BUCKETS}) for s in STATS}
+
+    def district_timeline_factory():
+        return {s: defaultdict(lambda: {b: 0 for b in BUCKETS}) for s in STATS}
+
+    house_tl = defaultdict(district_timeline_factory)
+    senate_tl = defaultdict(district_timeline_factory)
 
     for hd, sd, bucket, stat, event_date, n in rows:
         bucket = str(bucket or "").strip()
@@ -210,15 +217,17 @@ def pull_state(conn, abbr, today):
         n = int(n or 0)
         hd_id = normalize_district_id(hd)
         sd_id = normalize_district_id(sd)
+        date_key = timeline_key(stat, event_date, today, election_day)
         if hd_id:
             house[hd_id][stat][bucket] += n
+            house_tl[hd_id][stat][date_key][bucket] += n
         if sd_id:
             senate[sd_id][stat][bucket] += n
+            senate_tl[sd_id][stat][date_key][bucket] += n
         statewide[stat][bucket] += n
-        election_day = model.get("election_day", DEFAULT_ELECTION_DAY)
-        timeline[stat][timeline_key(stat, event_date, today, election_day)][bucket] += n
+        timeline[stat][date_key][bucket] += n
 
-    return house, senate, statewide, timeline
+    return house, senate, statewide, timeline, house_tl, senate_tl
 
 
 def timeline_rows(timeline_stat):
@@ -244,9 +253,9 @@ def build_outputs(results, updated):
 
     for abbr in sorted(results):
         fips = ABBR_TO_FIPS[abbr]
-        house, senate, statewide, timeline = results[abbr]
+        house, senate, statewide, timeline, house_tl, senate_tl = results[abbr]
 
-        for chamber, dmap in (("house", house), ("senate", senate)):
+        for chamber, dmap, tlmap in (("house", house, house_tl), ("senate", senate, senate_tl)):
             if not dmap:
                 continue
             out = {
@@ -255,7 +264,12 @@ def build_outputs(results, updated):
                 "chamber": chamber,
                 "updated": updated,
                 "districts": [
-                    {"district_id": did, **dmap[did]} for did in sorted(dmap)
+                    {
+                        "district_id": did,
+                        **dmap[did],
+                        "timeline": {stat: timeline_rows(tlmap[did][stat]) for stat in STATS},
+                    }
+                    for did in sorted(dmap)
                 ],
             }
             path = OUT_DIR / f"{abbr.lower()}_{chamber}.json"
@@ -335,7 +349,7 @@ def main():
         conn.close()
 
     if args.dry_run:
-        for abbr, (house, senate, statewide, _timeline) in results.items():
+        for abbr, (house, senate, statewide, *_rest) in results.items():
             print(f"[{abbr}] house districts: {len(house)}, senate districts: {len(senate)}, "
                   f"statewide requested: {sum(statewide['requested'].values()):,}")
         print("Dry run complete — no files written.")
