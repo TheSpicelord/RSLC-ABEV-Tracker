@@ -52,6 +52,30 @@ CYCLE_START = date(2026, 1, 1)
 # elections end in April; real 2026 general states use Nov 3).
 DEFAULT_ELECTION_DAY = date(2026, 11, 3)
 
+# National fallback model for states with no state-specific exchange file.
+# The three RSLC legislative audiences are mutually exclusive across the file
+# (verified: every row is exactly one of rep / dem / swing), so this buckets the
+# same way a state model does. Swing and unmatched -> toss.
+NATIONAL_MODEL_TABLE = "dbo.[RSLC DRA June National Audiences and Scores]"
+NATIONAL_BUCKET_SQL = (
+    "CASE WHEN m.[RSLC Republican Legislative Voters] = '1' THEN 'rep' "
+    "WHEN m.[RSLC Democratic Legislative Voters] = '1' THEN 'dem' "
+    "ELSE 'toss' END"
+)
+
+
+def alaska_senate_from_house(hd_id):
+    """AK's ABEV feed has no SenateDistrict, but Alaska statute builds each
+    senate district from two consecutive house districts: A = HD 1-2,
+    B = 3-4, ... T = 39-40. Shapefile SLDUST values are '00A'..'00T'."""
+    if not hd_id.isdigit():
+        return ""
+    n = int(hd_id)
+    if not 1 <= n <= 40:
+        return ""
+    return "00" + chr(ord("A") + (n - 1) // 2)
+
+
 STATE_MODELS = {
     "VA": {
         "model_table": "dbo.RSLC_VA_R2_Exchange_20250804",
@@ -73,11 +97,23 @@ STATE_MODELS = {
             "ELSE 'toss' END"  # 4-5 = swing; unmatched -> toss
         ),
     },
+    # AK and RI have no state exchange file and, so far, no returns or early
+    # votes — every row is a permanent-absentee list signup (RequestDate only).
+    # Both run a real Nov 3 general, so they take DEFAULT_ELECTION_DAY.
+    "AK": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+        "derive_senate": alaska_senate_from_house,
+    },
+    "RI": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
 }
 
-# States to pull. RI and AK currently only contain permanent-absentee list
-# signups with no models — ignore until real 2026 general data arrives.
-ACTIVE_STATES = ["VA", "WI"]
+ACTIVE_STATES = ["VA", "WI", "AK", "RI"]
 
 ABBR_TO_FIPS = {
     "AL": "01", "AK": "02", "AZ": "04", "AR": "05", "CA": "06", "CO": "08",
@@ -198,6 +234,7 @@ def pull_state(conn, abbr, today):
     print(f"[{abbr}] {len(rows):,} aggregate rows returned.")
 
     election_day = model.get("election_day", DEFAULT_ELECTION_DAY)
+    derive_senate = model.get("derive_senate")
     house = defaultdict(empty_stat_buckets)
     senate = defaultdict(empty_stat_buckets)
     statewide = empty_stat_buckets()
@@ -217,6 +254,8 @@ def pull_state(conn, abbr, today):
         n = int(n or 0)
         hd_id = normalize_district_id(hd)
         sd_id = normalize_district_id(sd)
+        if not sd_id and derive_senate and hd_id:
+            sd_id = derive_senate(hd_id)
         date_key = timeline_key(stat, event_date, today, election_day)
         if hd_id:
             house[hd_id][stat][bucket] += n

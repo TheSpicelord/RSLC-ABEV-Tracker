@@ -3,19 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ABEV Tracker — 2026 General Election</title>
+  <title>RSLC ABEV Tracker</title>
+  <!-- Square, transparent-padded copy of RSLC Logo.png so the tab icon isn't squished -->
+  <link rel="icon" type="image/png" href="data/favicon.png" />
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
     crossorigin=""
   />
-  <link rel="stylesheet" href="style.css?v=20260718f" />
+  <link rel="stylesheet" href="style.css?v=20260725f" />
 </head>
 <body>
   <header class="topbar">
     <div class="topbar-title-row">
-      <h1>Absentee &amp; Early Vote Tracker <span class="title-election">2026 General Election</span></h1>
+      <h1>RSLC ABEV Tracker <span class="title-election">2026 General Election</span></h1>
       <div class="topbar-badges">
         <span id="sampleBadge" class="sample-badge" hidden>SAMPLE DATA</span>
         <span id="updatedBadge" class="updated-badge" hidden></span>
@@ -29,17 +31,21 @@
             <option value="">Select State...</option>
           </select>
           <button id="exitStateBtn" type="button" hidden>Exit State</button>
-          <div class="chamber-buttons chamber-buttons-stack">
-            <div class="chamber-btn-row">
-              <button id="houseChamberBtn" type="button">Lower Chamber</button>
-              <button id="senateChamberBtn" type="button">Upper Chamber</button>
-            </div>
-            <div class="chamber-btn-row">
-              <button id="dailyChronoBtn" type="button">Daily</button>
-              <button id="cumulativeChronoBtn" type="button">Cumulative</button>
-            </div>
+          <div class="chamber-buttons">
+            <button id="houseChamberBtn" type="button">Lower Chamber</button>
+            <button id="senateChamberBtn" type="button">Upper Chamber</button>
           </div>
           <div id="statViewButtons" class="stat-view-buttons"></div>
+          <div class="overlay-toggles">
+            <label class="county-overlay-label">
+              <input id="upIn2026Toggle" type="checkbox" />
+              Up in 2026
+            </label>
+            <label class="county-overlay-label">
+              <input id="targetDistrictsToggle" type="checkbox" />
+              Target Districts
+            </label>
+          </div>
         </div>
       </div>
     </div>
@@ -55,6 +61,6 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/shpjs@latest/dist/shp.min.js"></script>
-  <script type="module" src="app.js?v=20260718f"></script>
+  <script type="module" src="app.js?v=20260725f"></script>
 </body>
 </html>

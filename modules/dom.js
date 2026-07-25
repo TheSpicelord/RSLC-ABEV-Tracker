@@ -1,8 +1,8 @@
 export const houseChamberBtn = document.getElementById("houseChamberBtn");
 export const senateChamberBtn = document.getElementById("senateChamberBtn");
-export const dailyChronoBtn = document.getElementById("dailyChronoBtn");
-export const cumulativeChronoBtn = document.getElementById("cumulativeChronoBtn");
 export const statViewButtons = document.getElementById("statViewButtons");
+export const upIn2026Toggle = document.getElementById("upIn2026Toggle");
+export const targetDistrictsToggle = document.getElementById("targetDistrictsToggle");
 export const stateSelect = document.getElementById("stateSelect");
 export const exitStateBtn = document.getElementById("exitStateBtn");
 export const updatedBadge = document.getElementById("updatedBadge");

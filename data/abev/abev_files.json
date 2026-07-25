@@ -1,10 +1,14 @@
 {
-  "updated": "2026-07-18",
+  "updated": "2026-07-24",
   "house": [
+    "data/abev/ak_house.json",
+    "data/abev/ri_house.json",
     "data/abev/va_house.json",
     "data/abev/wi_house.json"
   ],
   "senate": [
+    "data/abev/ak_senate.json",
+    "data/abev/ri_senate.json",
     "data/abev/va_senate.json",
     "data/abev/wi_senate.json"
   ],

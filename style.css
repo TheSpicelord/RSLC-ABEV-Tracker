@@ -1209,7 +1209,7 @@ body.projection-active .chamber-buttons {
 
 .map-overview-button {
   position: absolute;
-  top: 12px;
+  top: 44px; /* below the trend-graph tab */
   right: 12px;
   z-index: 1002;
   margin: 0;
@@ -1560,7 +1560,7 @@ body.projection-active .chamber-buttons {
 
 .target-row {
   cursor: pointer;
-  transition: transform 140ms ease, background 140ms ease, opacity 140ms ease;
+  transition: background 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
 }
 .target-table td.candidate-cell {
   white-space: nowrap;
@@ -1602,9 +1602,11 @@ body.projection-active .chamber-buttons {
   padding-bottom: 0.22rem;
 }
 
+/* Hover feedback is background + inset ring only. No transform: scaling a <tr>
+   renders inconsistently across browsers (the "jiggle"), and a lift on the
+   first row of a tier group drags its rowspanned tier button along with it. */
 .target-row:hover,
 .target-row.is-hovered {
-  transform: translateY(-1px) scale(1.01);
   background: rgba(255, 255, 255, 0.03);
 }
 
@@ -1614,7 +1616,6 @@ body.projection-active .chamber-buttons {
 }
 
 .target-row:has(.target-tier-group-cell:hover) {
-  transform: none;
   background: transparent;
 }
 
@@ -1740,7 +1741,12 @@ body.projection-active .chamber-buttons {
   padding-right: 0.22rem !important;
 }
 
+/* The tier button is a rowspan cell that belongs to the group's FIRST row, so a
+   translucent background lets that row's :hover highlight paint through the
+   whole tier block. Opaque equivalent of the 2% white overlay on the table's
+   #121a22 — looks identical, but blocks the row background behind it. */
 .target-tier-group-cell {
+  background: #171f26;
   vertical-align: middle !important;
   pointer-events: auto;
   cursor: pointer;
@@ -2661,8 +2667,13 @@ html.auth-pending main {
   border-color: #76b2ff;
 }
 
+/* The sidebar is width:max-content, so it widens to fit the district table;
+   cap the cards so they keep a fixed size instead of stretching with it. */
 .statewide-stats-grid.three-cards {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  max-width: 400px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* --- Chrono table date cell --- */
@@ -2674,21 +2685,6 @@ html.auth-pending main {
 
 .chrono-special-row td {
   color: var(--muted);
-}
-
-/* --- Stacked chamber/chrono button rows --- */
-.chamber-buttons-stack {
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.chamber-btn-row {
-  display: flex;
-  gap: 0.42rem;
-}
-
-.chamber-btn-row button {
-  flex: 1 1 0;
 }
 
 /* --- Sticky header fix: keep scrolled rows from peeking above the pinned
@@ -2720,6 +2716,21 @@ html.auth-pending main {
   background: #1b232d;
 }
 
+/* The full district table lists every seat, so unlike the target tables it hits
+   districts with no party fill ("O", or blank where District Explorer has no
+   record). Those need the table's own text color — the shared .inc-cell color is
+   dark ink meant to sit on the red/blue fills. */
+.abev-table .inc-cell:not(.inc-r):not(.inc-d):not(.inc-s) {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* Header text is pre-split into two lines with <br>; keep each line intact so a
+   column is only as wide as its longest word. */
+.abev-table th {
+  white-space: nowrap;
+}
+
 .abev-count-cell {
   padding: 0.3rem 0.4rem;
 }
@@ -2738,6 +2749,16 @@ html.auth-pending main {
 .abev-table th.abev-vline-right,
 .abev-table td.abev-vline-right {
   border-right: 1px solid var(--border);
+}
+
+/* The sidebar is width:max-content, so a wide chrono table further down would
+   otherwise stretch this table's columns across the whole panel. */
+.abev-detail-table {
+  width: auto;
+  min-width: 360px;
+  max-width: 520px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* --- District detail: larger plain title, purple Swing --- */
@@ -2763,6 +2784,13 @@ html.auth-pending main {
 }
 
 /* Keep count/margin columns comfortably sized without stretching */
+/* Past cycle on retired district lines — the count is real but belongs to a
+   different map, so the column reads N/A in the same muted tone as its margin. */
+.count-cell-na {
+  color: #8392a2;
+  font-weight: 600;
+}
+
 .abev-table .abev-count-cell {
   min-width: 66px;
   padding-left: 0.55rem;
@@ -2810,3 +2838,499 @@ html.auth-pending main {
   color: #ffffff;
   box-shadow: 0 0 0 1px rgba(140, 235, 250, 0.35), 0 0 12px rgba(20, 180, 201, 0.4);
 }
+
+/* --- Statewide Districts / Daily / Weekly selector --- */
+/* The sidebar is width:max-content, so it widens to fit the district table.
+   Cap this row so the buttons keep a fixed size instead of stretching across a
+   wide table. Matches the stat-card row above it. */
+.state-chrono-buttons {
+  margin: 0 auto 0.15rem;
+  max-width: 400px;
+}
+
+.state-chrono-buttons .detail-chrono-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.38rem 0.7rem;
+  white-space: nowrap;
+}
+
+/* Quiet control box under the chrono buttons: Historical ABEV columns in the
+   district view, period-vs-cumulative in the chrono views. Deliberately
+   lower-contrast than the chrono selector — these are options on the view
+   above, not view switches. */
+/* Fixed width: sized to content, the box (and so every button in it) changed
+   width whenever the note text under it did. */
+.option-box {
+  width: 172px;
+  max-width: 100%;
+  margin: 0.75rem auto 0.55rem; /* breathing room below the chrono buttons */
+  padding: 0.3rem 0.6rem 0.35rem;
+  border: 1px solid #2b3644;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.option-box-title {
+  text-align: center;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #7e8b9a;
+  margin-bottom: 0.22rem;
+}
+
+/* Stacked, so the box stays narrow next to a wide table and each option reads
+   as one line rather than three competing chips. */
+.option-box-buttons {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.22rem;
+}
+
+.option-btn {
+  padding: 0.2rem 0.7rem;
+  text-align: center;
+  white-space: nowrap;
+  background: transparent;
+  border: 1px solid #38465a;
+  border-radius: 5px;
+  color: #9fb0c2;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.25;
+  cursor: pointer;
+  transition: background 130ms ease, color 130ms ease, border-color 130ms ease;
+}
+
+.option-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #d3dde8;
+}
+
+.option-btn-active {
+  background: #2f3f51;
+  border-color: #61748a;
+  color: #eaf1f8;
+}
+
+.option-box-note {
+  margin: 0.24rem 0 0;
+  text-align: center;
+  font-size: 0.66rem;
+  line-height: 1.25;
+  color: #7e8b9a;
+}
+
+/* Two option boxes side by side (chrono totals + historical), top-aligned so the
+   taller one's note doesn't shove the other down. */
+.option-box-row {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.option-box-row .option-box {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* --- Trend graph tab (hangs from the map's upper-right corner) --- */
+.trend-tab {
+  position: absolute;
+  top: 0;
+  right: 12px;
+  z-index: 1003;
+  margin: 0;
+  padding: 0.34rem 0.8rem 0.4rem;
+  border: 1px solid #566b82;
+  border-top: none;
+  border-radius: 0 0 9px 9px;
+  background: linear-gradient(180deg, #2f3f51 0%, #24313f 100%);
+  color: #dce7f4;
+  font-family: "Bahnschrift", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  font-weight: 800;
+  font-size: 0.86rem;
+  letter-spacing: 0.2px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.28);
+  transition: opacity 160ms ease, background 140ms ease, border-color 140ms ease;
+}
+
+.trend-tab:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.trend-tab-hidden {
+  display: none;
+}
+
+.trend-tab-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.trend-tab-open {
+  background: linear-gradient(180deg, #0d97a8 0%, #086b7a 100%);
+  border-color: #6fe3f2;
+  color: #ffffff;
+  box-shadow: 0 0 0 1px rgba(140, 235, 250, 0.35), 0 0 14px rgba(20, 180, 201, 0.42);
+}
+
+.trend-tab-arrow {
+  display: inline-block;
+  transition: transform 160ms ease;
+}
+
+.trend-tab-open .trend-tab-arrow {
+  transform: rotate(180deg);
+}
+
+/* --- Trend graph panel --- */
+.trend-panel {
+  position: absolute;
+  top: 36px;
+  right: 12px;
+  z-index: 1002;
+  width: min(780px, calc(100% - 24px));
+  max-height: calc(100% - 52px);
+  overflow: auto;
+  padding: 0.6rem 0.7rem 0.55rem;
+  border: 1px solid #39495a;
+  border-radius: 10px;
+  background: rgba(20, 28, 36, 0.96);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+  font-family: "Bahnschrift", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.trend-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 0.35rem;
+}
+
+.trend-title {
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: #e7edf5;
+}
+
+.trend-end-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #9ba9b9;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.trend-end-toggle input {
+  margin: 0;
+  accent-color: #0d97a8;
+  cursor: pointer;
+}
+
+.trend-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* Which cycles to draw. Grouped and boxed so they read as one control rather
+   than as more end-graph-style toggles. */
+.trend-year-toggles {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.14rem 0.5rem;
+  border: 1px solid #2b3644;
+  border-radius: 6px;
+}
+
+.trend-year-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #9ba9b9;
+  cursor: pointer;
+  user-select: none;
+}
+
+.trend-year-toggle input {
+  margin: 0;
+  accent-color: #0d97a8;
+  cursor: pointer;
+}
+
+.trend-empty {
+  color: #8e98a5;
+  font-size: 0.9rem;
+  padding: 0.6rem 0.2rem 0.4rem;
+}
+
+.trend-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.trend-grid {
+  stroke: rgba(255, 255, 255, 0.07);
+  stroke-width: 1;
+}
+
+.trend-zero-line {
+  stroke: rgba(242, 246, 250, 0.35);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+
+.trend-axis-label {
+  fill: #9ba9b9;
+  font-size: 10px;
+  font-family: "Bahnschrift", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.trend-axis-left {
+  text-anchor: end;
+}
+
+.trend-axis-right {
+  text-anchor: start;
+}
+
+.trend-axis-x {
+  text-anchor: middle;
+}
+
+.trend-axis-r {
+  fill: #ff8a9b;
+}
+
+.trend-axis-d {
+  fill: #8ab6ff;
+}
+
+.trend-crosshair {
+  stroke: rgba(255, 255, 255, 0.45);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.trend-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.3rem 1rem;
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #c8d4e2;
+}
+
+.trend-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.trend-legend-axis {
+  color: #8794a3;
+  font-weight: 600;
+}
+
+.trend-swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.trend-swatch-dashed {
+  background: repeating-linear-gradient(90deg, #f2f6fa 0 4px, transparent 4px 7px);
+}
+
+/* Cycle key: same colors, told apart by line style. */
+.trend-swatch-line {
+  height: 0;
+  background: none;
+  border-top-width: 2px;
+  border-top-color: #c8d4e2;
+}
+
+.trend-tooltip {
+  position: absolute;
+  z-index: 1004;
+  pointer-events: none;
+  min-width: 118px;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #2f3c4b;
+  border-radius: 8px;
+  background: rgba(15, 21, 27, 0.96);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.4);
+  color: #e5edf6;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
+.trend-tooltip-date {
+  font-weight: 800;
+  margin-bottom: 0.15rem;
+}
+
+/* Cycle heading inside a multi-year tooltip. */
+.trend-tooltip-year {
+  margin-top: 0.3rem;
+  padding-top: 0.2rem;
+  border-top: 1px solid #263243;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #8fa0b3;
+}
+
+.trend-tooltip .trend-tt-r,
+.trend-tooltip .trend-tt-d,
+.trend-tooltip .trend-tt-t,
+.trend-tooltip .trend-tt-m {
+  display: inline-block;
+  min-width: 46px;
+  font-weight: 700;
+}
+
+/* --- Header filter checkboxes (Up in 2026 / Target Districts) --- */
+.overlay-toggles {
+  gap: 0.18rem;
+  min-width: 0;
+  padding-top: 0;
+  margin-left: 0.35rem;
+}
+
+.overlay-toggles .county-overlay-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #c8d4e2;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.overlay-toggles input[type="checkbox"] {
+  margin: 0;
+  accent-color: #257bf8;
+  cursor: pointer;
+}
+
+.overlay-toggles input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+}
+
+.overlay-toggles .county-overlay-label:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* --- Target districts section --- */
+/* Stacked, not side-by-side: the sidebar is capped at 50vw and two tables
+   abreast overflow into each other. */
+.target-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.target-column {
+  min-width: 0;
+  transition: opacity 140ms ease;
+}
+
+.target-column-muted {
+  opacity: 0.5;
+}
+
+.target-mode-header,
+.target-section-toggle,
+.target-tier-group-cell {
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Target tables reuse .abev-table for borders/cells/vlines so they match the
+   full district table exactly; this modifier only adds what differs. */
+.abev-target-table th,
+.abev-target-table td {
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* Sticky headers are for the long scrolling district table only — inside the
+   short target tables they detach and float over their own rows. */
+.abev-target-table th {
+  position: static;
+}
+
+.abev-target-table .target-col-tier {
+  width: 46px;
+  min-width: 46px;
+}
+
+.abev-target-table .target-district-cell,
+.abev-target-table .inc-cell {
+  font-weight: 700;
+}
+
+/* --- Past legislative margin columns (narrower than ABEV margin cells) --- */
+.abev-table td.leg-margin-cell {
+  min-width: 42px;
+  width: 42px;
+  padding-left: 0.22rem;
+  padding-right: 0.22rem;
+  font-size: 0.8rem;
+}
+
+.abev-table th.leg-margin-head {
+  min-width: 42px;
+  width: 42px;
+  padding-left: 0.18rem;
+  padding-right: 0.18rem;
+}
+
+.target-row-inactive {
+  opacity: 0.42;
+}
+
+.target-row-inactive:hover {
+  opacity: 0.7;
+}
+
+.leg-redistricting-note {
+  margin: 0.4rem auto 0.2rem;
+  max-width: 460px;
+  padding: 0.35rem 0.5rem;
+  border-left: 2px solid #566b82;
+  color: #9ba9b9;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.trend-tt-r { color: #ff8a9b; }
+.trend-tt-d { color: #8ab6ff; }
+.trend-tt-t { color: #c795d8; }
+.trend-tt-m { color: #9ba9b9; }

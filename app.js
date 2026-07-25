@@ -1,5 +1,6 @@
 import { requireAuth } from "./modules/auth.js";
 import {
+  ABEV_HISTORY_INDEX_URL,
   ABEV_INDEX_URL,
   ABEV_NATIONAL_URL,
   ABEV_START_OVERRIDES,
@@ -13,8 +14,13 @@ import {
   CHAMBER_NAMES_URL,
   CTRL_FINE_ZOOM_SNAP,
   CTRL_WHEEL_ZOOM_SLOW_FACTOR,
+  DE_DATA_BASES,
   DEFAULT_ELECTION_DAY,
   ELECTION_DAY_OVERRIDES,
+  HISTORY_ELECTION_DAYS,
+  HISTORY_STALE_LINES,
+  HISTORY_YEARS,
+  LEG_REDISTRICTING_NOTES,
   NATIONAL_CENTER,
   NATIONAL_ZOOM,
   OVERSEAS_TERRITORY_ABBR,
@@ -25,8 +31,6 @@ import {
   VIEW_MAP_STAT,
 } from "./modules/config.js";
 import {
-  cumulativeChronoBtn,
-  dailyChronoBtn,
   details,
   detailsTitle,
   exitStateBtn,
@@ -36,7 +40,9 @@ import {
   stateSelect,
   statusText,
   statViewButtons,
+  targetDistrictsToggle,
   updatedBadge,
+  upIn2026Toggle,
 } from "./modules/dom.js";
 import { state } from "./modules/state.js";
 
@@ -44,7 +50,7 @@ if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260718f";
+const BUILD_VERSION = "20260725f";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -100,6 +106,7 @@ async function init() {
   wireEvents();
   initHoverInfo();
   initChamberOverviewButton();
+  initTrendChart();
   renderViewButtons();
 
   detailsTitle.textContent = "National Overview";
@@ -300,11 +307,12 @@ function mapStat() {
 // Fill color from net advantage as a share of the stat total.
 // Red = GOP advantage, blue = Dem advantage (note: reversed sign convention
 // from District Explorer, which stores Dem-positive margins).
+// Hue saturates at a ±20% margin.
 function netColor(netPct) {
   if (typeof netPct !== "number") return "#d5dae0";
   if (Math.abs(netPct) < 0.0001) return "#f0f2f5";
-  if (netPct > 0) return interpolateHex("#ffd4dc", "#F82644", Math.min(netPct, 40) / 40);
-  return interpolateHex("#cfe2ff", "#257BF8", Math.min(Math.abs(netPct), 40) / 40);
+  if (netPct > 0) return interpolateHex("#ffd4dc", "#F82644", Math.min(netPct, 20) / 20);
+  return interpolateHex("#cfe2ff", "#257BF8", Math.min(Math.abs(netPct), 20) / 20);
 }
 
 function statCellHtml(rec, stat) {
@@ -323,6 +331,724 @@ function statCellHtml(rec, stat) {
 }
 
 // ---------------------------------------------------------------------------
+// District Explorer data (targets, incumbents, past legislative margins)
+//
+// Read straight from the sibling District Explorer project, which generates it
+// from "State Legislative Election History.xlsx". That workbook stays the one
+// source of truth — nothing is copied into this repo. Fetched lazily per
+// state+chamber so selecting a state doesn't pull all ~99 files.
+// ---------------------------------------------------------------------------
+
+async function fetchDeJson(fileName) {
+  // Once a base answers, keep using it instead of re-probing the dead one.
+  const bases = state.deBaseUrl ? [state.deBaseUrl] : DE_DATA_BASES;
+  for (const base of bases) {
+    try {
+      const response = await fetch(withCacheBust(base + fileName));
+      if (!response.ok) continue;
+      const json = await response.json();
+      state.deBaseUrl = base;
+      return json;
+    } catch (_err) {
+      // Try the next base (relative path 404s / CORS failures land here).
+    }
+  }
+  return null;
+}
+
+// DE's chamber_files.json maps each state+chamber to its actual file name.
+// Most are "<abbr>_<chamber>.json", but not all — MI and MN are
+// "michigan_*"/"minnesota_*" — so guessing the name silently loses those
+// states' targets, incumbents and past margins. Read the index instead.
+async function ensureDeChamberIndex() {
+  if (state.deChamberIndex) return state.deChamberIndex;
+  const index = await fetchDeJson("chamber_files.json");
+  const map = new Map();
+  for (const chamber of ["house", "senate"]) {
+    for (const entry of Array.isArray(index?.[chamber]) ? index[chamber] : []) {
+      const abbr = normalizeStateAbbr(entry?.state || "");
+      const url = String(entry?.url || "").trim();
+      if (!abbr || !url) continue;
+      map.set(`${abbr}|${chamber}`, url.replace(/^data\//, "")); // bases already end in data/
+    }
+  }
+  state.deChamberIndex = map;
+  return map;
+}
+
+async function ensureDeChamberData(abbr, chamber) {
+  const stateAbbr = normalizeStateAbbr(abbr);
+  if (!stateAbbr) return new Map();
+  const key = `${stateAbbr}|${chamber}`;
+  if (state.deDataByKey.has(key)) return state.deDataByKey.get(key);
+
+  const index = await ensureDeChamberIndex();
+  const fileName = index.get(key) || `${stateAbbr.toLowerCase()}_${chamber}.json`;
+  const rows = await fetchDeJson(fileName);
+  const map = new Map();
+  for (const rec of Array.isArray(rows) ? rows : []) {
+    const fips = normalizeStateFips(rec?.state_fips);
+    const districtId = normalizeDistrictId(rec?.district_id);
+    if (!fips || !districtId) continue;
+    map.set(makeJoinKey(fips, districtId), rec);
+  }
+  state.deDataByKey.set(key, map);
+  return map;
+}
+
+// ---------------------------------------------------------------------------
+// Past-cycle ABEV (2022 / 2024)
+//
+// Same record shape as the current cycle, under data/abev/history/<year>/.
+// Only states that have been backfilled appear; everything else renders "—".
+// Loaded lazily per state+chamber, both years together, like the DE data above.
+// ---------------------------------------------------------------------------
+
+async function ensureHistoryIndex() {
+  if (state.historyIndex) return state.historyIndex;
+  const index = await fetchJson(ABEV_HISTORY_INDEX_URL);
+  state.historyIndex = index && typeof index === "object" ? index : { years: {} };
+  return state.historyIndex;
+}
+
+async function ensureHistoryData(abbr, chamber) {
+  const stateAbbr = normalizeStateAbbr(abbr);
+  if (!stateAbbr) return;
+  const index = await ensureHistoryIndex();
+
+  await Promise.all(HISTORY_YEARS.map(async (year) => {
+    const key = `${year}|${stateAbbr}|${chamber}`;
+    if (state.historyByKey.has(key)) return;
+
+    const paths = index?.years?.[String(year)]?.[chamber];
+    const wanted = `${stateAbbr.toLowerCase()}_${chamber}.json`;
+    const path = (Array.isArray(paths) ? paths : []).find((p) => String(p).endsWith(wanted));
+
+    const map = new Map();
+    if (path) {
+      const data = await fetchJson(String(path));
+      const fips = normalizeStateFips(data?.state_fips);
+      for (const rec of Array.isArray(data?.districts) ? data.districts : []) {
+        const districtId = normalizeDistrictId(rec?.district_id);
+        if (!fips || !districtId) continue;
+        map.set(makeJoinKey(fips, districtId), rec);
+      }
+    }
+    state.historyByKey.set(key, map); // cached even when empty, so we ask once
+  }));
+
+  await ensureHistoryTimelines();
+}
+
+// Statewide past-cycle timelines (one file per year, all states). The chrono
+// tables run at state scope, where there is no district record to read from.
+async function ensureHistoryTimelines() {
+  if (state.historyTimelinesLoaded) return;
+  const index = await ensureHistoryIndex();
+  await Promise.all(HISTORY_YEARS.map(async (year) => {
+    const byFips = new Map();
+    const path = index?.years?.[String(year)]?.timeline;
+    if (path) {
+      const data = await fetchJson(String(path));
+      for (const [fips, stats] of Object.entries(data?.states || {})) {
+        const normalized = normalizeStateFips(fips);
+        if (normalized) byFips.set(normalized, stats);
+      }
+    }
+    state.historyTimelineByYear.set(year, byFips);
+  }));
+  state.historyTimelinesLoaded = true;
+}
+
+function historyRecordFor(year, joinKey, chamber = state.chamber) {
+  const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
+  return state.historyByKey.get(`${year}|${abbr}|${chamber}`)?.get(joinKey) || null;
+}
+
+// Does this state have any past-cycle data at all? Drives whether the
+// Historical ABEV toggle is worth showing. District tables read the per-district
+// files; the statewide chrono tables read the per-year timeline.
+function historyAvailableForSelectedState() {
+  const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
+  if (!abbr) return false;
+  const fips = normalizeStateFips(state.selectedState?.fips);
+  return HISTORY_YEARS.some(
+    (year) =>
+      (state.historyByKey.get(`${year}|${abbr}|${state.chamber}`)?.size || 0) > 0 ||
+      !!state.historyTimelineByYear.get(year)?.get(fips)
+  );
+}
+
+// Does a past cycle line up with today's districts in this state? Where the
+// state redrew its map in between (HISTORY_STALE_LINES) the counts are real but
+// belong to different geography, so the columns render N/A instead and the
+// trend graph doesn't offer the year at all.
+function historyYearAppliesToSelectedState(year) {
+  const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
+  if (!abbr) return true;
+  return !(HISTORY_STALE_LINES[year] || []).includes(abbr);
+}
+
+// Past-year timeline for whatever a chrono table is showing: a selected
+// district, or the state as a whole when joinKey is null.
+function historyTimelineForScope(year, joinKey) {
+  if (joinKey) return historyRecordFor(year, joinKey)?.timeline || null;
+  const fips = normalizeStateFips(state.selectedState?.fips);
+  return state.historyTimelineByYear.get(year)?.get(fips) || null;
+}
+
+// How far the current cycle is from its election day. Past years are aligned to
+// the same distance from *their* election day, so "99 days out" compares like
+// with like. Clamped at 0 once election day has passed.
+function daysOutFromElectionDay() {
+  const days = daysBetweenIso(localTodayIso(), electionDayForSelectedState());
+  return days > 0 ? days : 0;
+}
+
+function historyAsOfIso(year) {
+  const electionDay = HISTORY_ELECTION_DAYS[year];
+  if (!electionDay) return null;
+  return addIsoDays(electionDay, -daysOutFromElectionDay());
+}
+
+// Running total for a past year as of its equivalent day.
+//
+// Undated rows (bad/unknown dates) are deliberately EXCLUDED here, unlike the
+// cumulative chrono view's "Earlier" baseline. A vote whose date is unknown
+// can't be placed in time, and treating it as pre-dating everything invents
+// activity: VA's 2022 file has 29,353 undated votes but no real ABEV before
+// Sept 19, so a baseline would report tens of thousands of votes cast 100 days
+// out when the window had not even opened. Consequence: at 0 days out this runs
+// slightly under Final Results, by exactly the undated count (~3% in VA).
+function historyTotalsAsOf(rec, stat, asOfIso) {
+  return historyTotalsInRange(rec?.timeline, stat, null, asOfIso);
+}
+
+// Sum a past-year timeline over a date window. `fromIso` null = from the start.
+// Undated rows are always skipped (see above); `toIso` null takes everything.
+function historyTotalsInRange(timeline, stat, fromIso, toIso) {
+  const parts = stat === "voted" ? ["returned", "ev"] : [stat];
+  const buckets = { rep: 0, dem: 0, toss: 0 };
+  for (const part of parts) {
+    for (const row of timeline?.[part] || []) {
+      const key = String(row.date || "");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
+      if (fromIso && key < fromIso) continue;
+      if (toIso && key > toIso) continue;
+      buckets.rep += Number(row.rep || 0);
+      buckets.dem += Number(row.dem || 0);
+      buckets.toss += Number(row.toss || 0);
+    }
+  }
+  const total = buckets.rep + buckets.dem + buckets.toss;
+  return { ...buckets, total, net: buckets.rep - buckets.dem };
+}
+
+// The date in `year` that sits the same number of days from its election day as
+// `iso` does from this cycle's — the per-row form of "On This Day".
+function historyAlignedIso(year, iso) {
+  const electionDay = HISTORY_ELECTION_DAYS[year];
+  if (!electionDay || !iso) return null;
+  return addIsoDays(electionDay, -daysBetweenIso(iso, electionDayForSelectedState()));
+}
+
+// Chrono tables have no Final Results option: a finished total is one number, so
+// it would just repeat down every row. A Final picked in the district table
+// falls back to On This Day there and is restored on the way back.
+function historyModeFor({ chrono = false } = {}) {
+  if (chrono && state.historyMode === "final") return "onthisday";
+  return state.historyMode;
+}
+
+// Totals for a past year's column, honouring the On This Day / Final toggle.
+function historyTotals(joinKey, year, stat) {
+  const rec = historyRecordFor(year, joinKey);
+  if (!rec) return null;
+  if (state.historyMode === "final") return statTotals(rec, stat);
+  const asOf = historyAsOfIso(year);
+  if (!asOf) return null;
+  return historyTotalsAsOf(rec, stat, asOf);
+}
+
+// Past-year totals for one chrono row: the row's own date span mapped to the
+// same days-out in that year — the span itself in period mode, everything
+// through its end in cumulative. The "Earlier"/"Unk" row has no date to align,
+// so it gets nothing.
+function chronoHistoryTotals(row, year, stat, { cumulative, joinKey }) {
+  const timeline = historyTimelineForScope(year, joinKey);
+  if (!timeline) return null;
+  if (!row.startIso || !row.endIso) return null;
+  const from = historyAlignedIso(year, row.startIso);
+  const to = historyAlignedIso(year, row.endIso);
+  if (!to) return null;
+  return historyTotalsInRange(timeline, stat, cumulative ? null : from, to);
+}
+
+function deChamberMap(chamber = state.chamber) {
+  const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
+  return state.deDataByKey.get(`${abbr}|${chamber}`) || new Map();
+}
+
+function deRecordFor(joinKey) {
+  return deChamberMap().get(joinKey) || null;
+}
+
+// District Explorer stores Dem-positive margins; this project is GOP-positive.
+function legMarginRPositive(deRec, year) {
+  const raw = deRec?.view_margins?.[`leg_${year}`];
+  return typeof raw === "number" ? -raw : null;
+}
+
+function recordIsUpIn2026(deRec) {
+  return Number(deRec?.next_election) === 2026;
+}
+
+// Incumbent party for the district: "R", "D", "S" (split multi-member), "O".
+function incumbentPartyCode(deRec) {
+  const members = Array.isArray(deRec?.members) ? deRec.members : [];
+  if (members.length) {
+    let hasRep = false;
+    let hasDem = false;
+    for (const member of members) {
+      const party = String(member?.incumbent?.party || "").trim().toUpperCase();
+      if (party === "R") hasRep = true;
+      if (party === "D") hasDem = true;
+    }
+    if (hasRep && hasDem) return "S";
+    if (hasRep) return "R";
+    if (hasDem) return "D";
+    return "O";
+  }
+  const party = String(deRec?.incumbent?.party || "").trim().toUpperCase();
+  return party === "R" || party === "D" ? party : "O";
+}
+
+// GOP-held seats are what we defend; Dem-held are pickup opportunities.
+function targetSectionForParty(party) {
+  const normalized = String(party || "").trim().toUpperCase();
+  if (normalized === "S") return "split";
+  if (normalized === "R") return "defense";
+  if (normalized === "D") return "offense";
+  return null;
+}
+
+function districtTierValue(value) {
+  const tier = Number(value);
+  if (!Number.isInteger(tier) || tier < 1 || tier > 4) return null;
+  return tier;
+}
+
+// --- Which past legislative elections to show as columns ---------------------
+
+// The two most recent legislative elections that exist for this chamber, so
+// odd-year states (VA: 2023/2025) work the same as even-year ones. Where a
+// state's current lines postdate the older election, that column is still shown
+// but explicitly unavailable, with a footnote explaining why.
+function legMarginColumnsForChamber() {
+  const map = deChamberMap();
+  const years = new Set();
+  for (const rec of map.values()) {
+    for (const [key, value] of Object.entries(rec?.view_margins || {})) {
+      const match = key.match(/^leg_(\d{4})$/);
+      if (match && typeof value === "number") years.add(Number(match[1]));
+    }
+  }
+
+  const sorted = [...years].sort((a, b) => a - b);
+  const columns = sorted.slice(-2).map((year) => ({ year, available: true }));
+
+  if (columns.length === 1) {
+    const note = LEG_REDISTRICTING_NOTES[normalizeStateFips(state.selectedState?.fips)];
+    // legColumn:false means the state held no legislative election that year at
+    // all, so there is no margin column to stand in for.
+    if (note && note.legColumn !== false && note.missingYear < columns[0].year) {
+      columns.unshift({ year: note.missingYear, available: false });
+    }
+  }
+  return columns;
+}
+
+// Shown whenever something on screen is N/A because of the redraw — an
+// unavailable leg-margin column, or a past-cycle ABEV column for the same year.
+function legRedistrictingNote() {
+  const note = LEG_REDISTRICTING_NOTES[normalizeStateFips(state.selectedState?.fips)];
+  if (!note) return "";
+  if (legMarginColumnsForChamber().some((col) => !col.available)) return note.note;
+  const showingHistory = historyModeFor() !== "none" && historyAvailableForSelectedState();
+  return showingHistory && !historyYearAppliesToSelectedState(note.missingYear) ? note.note : "";
+}
+
+// `frame` adds the vline classes that bracket the column group, matching how
+// columnVlineClass() frames the gap columns in the main table.
+function legMarginCellsHtml(joinKey, columns, { frame = false } = {}) {
+  const deRec = deRecordFor(joinKey);
+  return columns
+    .map((col, idx) => {
+      let extra = " leg-margin-cell";
+      if (frame) {
+        if (idx === 0) extra += " abev-vline-left";
+        if (idx === columns.length - 1) extra += " abev-vline-right";
+      }
+      if (!col.available) {
+        return `<td class="margin-cell margin-cell-na${extra}" title="Districts redrawn after this election">N/A</td>`;
+      }
+      return marginCellHtml(legMarginRPositive(deRec, col.year), extra);
+    })
+    .join("");
+}
+
+function legMarginHeadCellsHtml(columns, { sortable = true, frame = false } = {}) {
+  return columns
+    .map((col, idx) => {
+      const label = `${col.year}<br>Leg`;
+      let extra = " leg-margin-head";
+      if (frame) {
+        if (idx === 0) extra += " abev-vline-left";
+        if (idx === columns.length - 1) extra += " abev-vline-right";
+      }
+      if (!sortable) return `<th class="${extra.trim()}">${label}</th>`;
+      return `<th class="abev-sortable${extra}" data-sort-scope="district" data-sort-key="leg_${col.year}">${label}${sortIndicator(state.districtSort, `leg_${col.year}`)}</th>`;
+    })
+    .join("");
+}
+
+// --- Target filter state -----------------------------------------------------
+
+const TARGET_SECTIONS = ["split", "defense", "offense"];
+const TARGET_TIERS = [1, 2, 3, 4];
+
+function createDefaultTargetFilters() {
+  const section = () => ({ enabled: true, tiers: { 1: true, 2: true, 3: true, 4: true } });
+  return { split: section(), defense: section(), offense: section() };
+}
+
+function ensureTargetFilters() {
+  if (!state.targetFilters) state.targetFilters = createDefaultTargetFilters();
+  return state.targetFilters;
+}
+
+function resetTargetFilters() {
+  state.targetFilters = createDefaultTargetFilters();
+}
+
+// Tiers that actually exist for a section in this chamber, so toggling a
+// section on doesn't enable tiers that have no districts behind them.
+function availableTargetTiersForSection(section) {
+  const tiers = new Set();
+  for (const rec of deChamberMap().values()) {
+    if (targetSectionForParty(incumbentPartyCode(rec)) !== section) continue;
+    const tier = districtTierValue(rec?.tier);
+    if (tier !== null) tiers.add(tier);
+  }
+  return tiers.size ? [...tiers].sort((a, b) => a - b) : TARGET_TIERS;
+}
+
+function targetSectionHasAnyTierSelected(section) {
+  ensureTargetFilters();
+  return availableTargetTiersForSection(section).some((tier) => !!state.targetFilters[section]?.tiers?.[tier]);
+}
+
+function anyTargetFiltersActive() {
+  return TARGET_SECTIONS.some(
+    (section) => !!state.targetFilters?.[section]?.enabled && targetSectionHasAnyTierSelected(section)
+  );
+}
+
+function targetSectionIsActive(section) {
+  ensureTargetFilters();
+  return !!state.targetDistrictsMode && !!state.targetFilters[section]?.enabled && targetSectionHasAnyTierSelected(section);
+}
+
+function targetTierIsActive(section, tier) {
+  ensureTargetFilters();
+  return !!state.targetDistrictsMode && !!state.targetFilters[section]?.enabled && !!state.targetFilters[section]?.tiers?.[tier];
+}
+
+function targetRecordPassesFilters(deRec) {
+  const section = targetSectionForParty(incumbentPartyCode(deRec));
+  const tier = districtTierValue(deRec?.tier);
+  if (!section || tier === null) return false;
+  ensureTargetFilters();
+  return !!state.targetFilters[section]?.enabled && !!state.targetFilters[section]?.tiers?.[tier];
+}
+
+function setExclusiveTargetFilter(section, tier = null) {
+  ensureTargetFilters();
+  for (const key of TARGET_SECTIONS) {
+    state.targetFilters[key].enabled = false;
+    for (const t of TARGET_TIERS) state.targetFilters[key].tiers[t] = false;
+  }
+  if (!state.targetFilters[section]) return;
+  state.targetFilters[section].enabled = true;
+  if (tier === null) {
+    for (const t of availableTargetTiersForSection(section)) state.targetFilters[section].tiers[t] = true;
+  } else {
+    state.targetFilters[section].tiers[tier] = true;
+  }
+}
+
+// Clicking a section header or a tier cell. When targeting is off, the first
+// click turns it on scoped to just what was clicked.
+function toggleTargetFilterControl(section, tier = null) {
+  ensureTargetFilters();
+  if (!section || !state.targetFilters[section]) return;
+
+  if (!state.targetDistrictsMode) {
+    setExclusiveTargetFilter(section, tier);
+    setTargetDistrictsMode(true, { preserveFilters: true });
+    return;
+  }
+
+  if (tier === null) {
+    if (targetSectionIsActive(section)) {
+      state.targetFilters[section].enabled = false;
+    } else {
+      state.targetFilters[section].enabled = true;
+      for (const t of TARGET_TIERS) state.targetFilters[section].tiers[t] = false;
+      for (const t of availableTargetTiersForSection(section)) state.targetFilters[section].tiers[t] = true;
+    }
+  } else if (!state.targetFilters[section].enabled || !state.targetFilters[section].tiers[tier]) {
+    state.targetFilters[section].enabled = true;
+    state.targetFilters[section].tiers[tier] = true;
+  } else {
+    state.targetFilters[section].tiers[tier] = false;
+  }
+
+  for (const key of TARGET_SECTIONS) {
+    if (!targetSectionHasAnyTierSelected(key)) state.targetFilters[key].enabled = false;
+  }
+
+  if (!anyTargetFiltersActive()) {
+    setTargetDistrictsMode(false, { preserveFilters: true });
+    return;
+  }
+  applyDistrictFilters();
+}
+
+// --- Filter application ------------------------------------------------------
+
+function refreshFilteredDistrictJoinKeySet() {
+  const map = deChamberMap();
+
+  const targetSet = new Set();
+  const upSet = new Set();
+  for (const [joinKey, rec] of map.entries()) {
+    if (districtTierValue(rec?.tier) !== null && targetRecordPassesFilters(rec)) targetSet.add(joinKey);
+    if (recordIsUpIn2026(rec)) upSet.add(joinKey);
+  }
+  state.targetJoinKeySet = targetSet;
+  state.upIn2026JoinKeySet = upSet;
+
+  const activeSets = [];
+  if (state.targetDistrictsMode) activeSets.push(targetSet);
+  if (state.upIn2026Mode) activeSets.push(upSet);
+
+  if (!activeSets.length) {
+    state.filteredDistrictJoinKeySet = null;
+    return;
+  }
+
+  // Intersection: a district must satisfy every active filter.
+  const filtered = new Set(activeSets[0]);
+  for (const set of activeSets.slice(1)) {
+    for (const key of [...filtered]) {
+      if (!set.has(key)) filtered.delete(key);
+    }
+  }
+  state.filteredDistrictJoinKeySet = filtered;
+}
+
+// Map filtering: every active filter applies (target tiers AND up-in-2026).
+function districtPassesActiveFilters(joinKey) {
+  const set = state.filteredDistrictJoinKeySet;
+  return !set || set.has(joinKey);
+}
+
+// Sidebar district table: only "Up in 2026" removes rows. Target-district
+// selection is a map-only filter — the table keeps the full district list.
+function districtPassesTableFilters(joinKey) {
+  if (!state.upIn2026Mode) return true;
+  return state.upIn2026JoinKeySet.has(joinKey);
+}
+
+// Recompute filters, then restyle the map and re-render the sidebar.
+function applyDistrictFilters(options = {}) {
+  refreshFilteredDistrictJoinKeySet();
+  syncFilterToggleUi();
+  refreshDistrictLayerForView();
+  if (state.districtNumberLayer) {
+    scheduleDistrictNumberLayerBuild(state.currentDistrictFeatures || []);
+  }
+  if (state.mode === "state" && !state.selectedDistrictLayer && !options.skipSidebar) {
+    showActiveStateSidebar();
+  }
+}
+
+function setTargetDistrictsMode(enabled, options = {}) {
+  state.targetDistrictsMode = !!enabled;
+  ensureTargetFilters();
+  if (state.targetDistrictsMode && !options.preserveFilters) resetTargetFilters();
+  applyDistrictFilters();
+}
+
+function setUpIn2026Mode(enabled) {
+  state.upIn2026Mode = !!enabled;
+  applyDistrictFilters();
+}
+
+function syncFilterToggleUi() {
+  const inState = state.mode === "state";
+  if (upIn2026Toggle) {
+    upIn2026Toggle.checked = !!state.upIn2026Mode;
+    upIn2026Toggle.disabled = !inState;
+  }
+  if (targetDistrictsToggle) {
+    targetDistrictsToggle.checked = !!state.targetDistrictsMode;
+    targetDistrictsToggle.disabled = !inState;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar: target districts section
+// ---------------------------------------------------------------------------
+
+const TARGET_SECTION_LABELS = { split: "Split", defense: "Defense", offense: "Offense" };
+
+// Most recent legislative election available for this chamber (e.g. 2024 for
+// WI, 2025 for VA) — used to rank target districts by competitiveness.
+function latestAvailableLegYear() {
+  const available = legMarginColumnsForChamber().filter((col) => col.available);
+  return available.length ? available[available.length - 1].year : null;
+}
+
+function targetRowsForSelectedState() {
+  const legYear = latestAvailableLegYear();
+  const rows = [];
+  for (const [joinKey, deRec] of deChamberMap().entries()) {
+    const tier = districtTierValue(deRec?.tier);
+    if (tier === null) continue;
+    const incParty = incumbentPartyCode(deRec);
+    const section = targetSectionForParty(incParty);
+    if (!section) continue;
+    const legMargin = legYear !== null ? legMarginRPositive(deRec, legYear) : null;
+    rows.push({
+      joinKey,
+      tier,
+      section,
+      incParty,
+      districtId: joinKey.split("|")[1] || "",
+      label: displayDistrictId("", joinKey.split("|")[1] || ""),
+      // Distance from even in the latest leg race; used for the in-tier sort.
+      legCloseness: typeof legMargin === "number" ? Math.abs(legMargin) : Number.POSITIVE_INFINITY,
+      rec: state.dataByChamber[state.chamber]?.get(joinKey) || null,
+    });
+  }
+  // Within a tier, closest (most competitive) leg result first; ties by district.
+  rows.sort(
+    (a, b) =>
+      a.tier - b.tier ||
+      a.legCloseness - b.legCloseness ||
+      districtLabelSortValue(a.districtId) - districtLabelSortValue(b.districtId)
+  );
+  return rows;
+}
+
+function targetSectionTableHtml(sectionKey, rows, legCols) {
+  const groups = TARGET_TIERS.map((tier) => ({ tier, rows: rows.filter((r) => r.tier === tier) })).filter(
+    (g) => g.rows.length
+  );
+  if (!groups.length) {
+    return '<div class="target-empty">None</div>';
+  }
+
+  // Same stat columns as the full district table, past cycles included, so the
+  // two tables stay in sync as the Historical ABEV selector changes.
+  const cols = viewColumnDefs(state.abevView, { withHistory: true });
+
+  // Framed leg-margin group (gap + columns), mirroring the full district table.
+  const legGroupCells = (joinKey) =>
+    legCols.length ? `<td class="abev-gap-cell"></td>${legMarginCellsHtml(joinKey, legCols, { frame: true })}` : "";
+  const legGroupHead = legCols.length
+    ? `<th class="abev-gap-cell"></th>${legMarginHeadCellsHtml(legCols, { sortable: false, frame: true })}`
+    : "";
+  // Tier + Dist + Inc + [gap + legs] + view columns
+  const colCount = 3 + (legCols.length ? legCols.length + 1 : 0) + cols.length;
+
+  const body = groups
+    .map((group, groupIdx) => {
+      const groupActive = targetTierIsActive(sectionKey, group.tier);
+      const groupRows = group.rows
+        .map((row, rowIdx) => {
+          const inactive = state.targetDistrictsMode && !targetTierIsActive(sectionKey, row.tier) ? " target-row-inactive" : "";
+          const tierCell =
+            rowIdx === 0
+              ? `<td class="target-tier-group-cell target-filter-toggle${groupActive ? " active-target-mode" : ""}" data-target-section="${sectionKey}" data-target-tier="${group.tier}" rowspan="${group.rows.length}"><span class="target-tier-group-label">Tier ${group.tier}</span></td>`
+              : "";
+          return `
+            <tr class="target-row district-select-row${inactive}${rowIdx === 0 ? " target-tier-group-start" : ""}" data-join-key="${escapeHtml(row.joinKey)}">
+              ${tierCell}
+              <td class="target-district-cell abev-vline-left">${escapeHtml(row.label)}</td>
+              <td class="inc-cell inc-${row.incParty.toLowerCase()} abev-vline-right"><strong>${escapeHtml(row.incParty)}</strong></td>
+              ${legGroupCells(row.joinKey)}
+              ${viewColumnBodyCellsHtml(cols, row.rec, row.joinKey)}
+            </tr>
+          `;
+        })
+        .join("");
+      const spacer =
+        groupIdx < groups.length - 1
+          ? `<tr class="target-tier-spacer" aria-hidden="true"><td colspan="${colCount}"></td></tr>`
+          : "";
+      return `${groupRows}${spacer}`;
+    })
+    .join("");
+
+  return `
+    <table class="abev-table abev-target-table">
+      <thead>
+        <tr>
+          <th class="target-col-tier">Tier</th>
+          <th class="target-col-district abev-vline-left">Dist</th>
+          <th class="target-col-inc abev-vline-right">Inc</th>
+          ${legGroupHead}
+          ${viewColumnHeadCellsHtml(cols, { sortable: false })}
+        </tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table>
+  `;
+}
+
+function targetDistrictsSectionHtml() {
+  const allRows = targetRowsForSelectedState();
+  if (!allRows.length) return "";
+  const legCols = legMarginColumnsForChamber();
+
+  const columns = TARGET_SECTIONS.map((section) => {
+    const rows = allRows.filter((r) => r.section === section);
+    if (!rows.length) return "";
+    const active = targetSectionIsActive(section);
+    // Only dim sections while targeting is actually on — with it off, nothing
+    // is "active" and the whole section would otherwise render washed out.
+    const muted = state.targetDistrictsMode && !active;
+    return `
+      <div class="target-column${muted ? " target-column-muted" : ""}">
+        <div class="detail-subtitle centered-subtitle chart-header target-section-toggle target-filter-toggle${active ? " active-target-mode" : ""}" data-target-section="${section}">${TARGET_SECTION_LABELS[section]}</div>
+        ${targetSectionTableHtml(section, rows, legCols)}
+      </div>
+    `;
+  }).join("");
+
+  const note = legRedistrictingNote();
+  return `
+    <div id="targetModeHeader" class="detail-section-title centered-section-title large-section-title target-mode-header${state.targetDistrictsMode ? " active-target-mode" : ""}">Target Districts</div>
+    <div class="target-columns">${columns}</div>
+    ${note ? `<div class="leg-redistricting-note">${escapeHtml(note)}</div>` : ""}
+    <div class="detail-break"></div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
 
@@ -335,15 +1061,15 @@ function wireEvents() {
     await setChamber("senate");
   });
 
-  if (dailyChronoBtn) {
-    dailyChronoBtn.addEventListener("click", () => {
-      setChronoMode("daily");
+  if (upIn2026Toggle) {
+    upIn2026Toggle.addEventListener("change", (e) => {
+      setUpIn2026Mode(!!e.target.checked);
     });
   }
 
-  if (cumulativeChronoBtn) {
-    cumulativeChronoBtn.addEventListener("click", () => {
-      setChronoMode("cumulative");
+  if (targetDistrictsToggle) {
+    targetDistrictsToggle.addEventListener("change", (e) => {
+      setTargetDistrictsMode(!!e.target.checked);
     });
   }
 
@@ -444,6 +1170,7 @@ function showActiveStateSidebar() {
   } else {
     showStateChamberOverview();
   }
+  updateTrendChartUi();
 }
 
 function isEditableTarget(target) {
@@ -499,6 +1226,7 @@ function setAbevView(view) {
   syncViewButtons();
   refreshStateBoundaryStyles();
   refreshDistrictLayerForView();
+  updateTrendChartUi();
 
   if (state.mode === "national") {
     renderNationalOverview();
@@ -757,7 +1485,12 @@ async function selectStateByMeta(meta, feature, options = {}) {
     focusOnState(meta, featureBounds);
   }
 
-  await ensureDistrictShapesLoaded();
+  await Promise.all([
+    ensureDistrictShapesLoaded(),
+    ensureDeChamberData(meta.abbr, state.chamber),
+    ensureHistoryData(meta.abbr, state.chamber),
+  ]);
+  refreshFilteredDistrictJoinKeySet();
   renderDistrictLayerForSelectedState();
   refreshStateBoundaryStyles();
   renderModeUi();
@@ -779,6 +1512,7 @@ function enterNationalView() {
   state.mode = "national";
   state.selectedState = null;
   stateSelect.value = "";
+  state.filteredDistrictJoinKeySet = null;
   clearDistrictLayer();
   if (state.statesLayer && !map.hasLayer(state.statesLayer)) {
     map.addLayer(state.statesLayer);
@@ -807,16 +1541,13 @@ function renderNationalOverview() {
 
 function renderModeUi() {
   const inState = state.mode === "state";
-  const inChrono = inState && !!state.chronoMode;
   houseChamberBtn.disabled = !inState;
   senateChamberBtn.disabled = !inState;
-  if (dailyChronoBtn) dailyChronoBtn.disabled = !inState;
-  if (cumulativeChronoBtn) cumulativeChronoBtn.disabled = !inState;
   exitStateBtn.hidden = !inState;
-  houseChamberBtn.classList.toggle("active-chamber", inState && !inChrono && state.chamber === "house");
-  senateChamberBtn.classList.toggle("active-chamber", inState && !inChrono && state.chamber === "senate");
-  if (dailyChronoBtn) dailyChronoBtn.classList.toggle("active-chrono", inChrono && state.chronoMode === "daily");
-  if (cumulativeChronoBtn) cumulativeChronoBtn.classList.toggle("active-chrono", inChrono && state.chronoMode === "cumulative");
+  houseChamberBtn.classList.toggle("active-chamber", inState && state.chamber === "house");
+  senateChamberBtn.classList.toggle("active-chamber", inState && state.chamber === "senate");
+  syncFilterToggleUi();
+  updateTrendChartUi();
 }
 
 async function setChamber(chamber) {
@@ -828,14 +1559,19 @@ async function setChamber(chamber) {
   state.districtSort = { key: null, direction: 0 };
   renderModeUi();
   if (state.mode === "state") {
-    await ensureDistrictShapesLoaded();
+    await Promise.all([
+      ensureDistrictShapesLoaded(),
+      ensureDeChamberData(state.selectedState?.abbr, chamber),
+      ensureHistoryData(state.selectedState?.abbr, chamber),
+    ]);
+    refreshFilteredDistrictJoinKeySet();
     renderDistrictLayerForSelectedState();
     refreshStateBoundaryStyles();
   }
 }
 
 function setChronoMode(mode) {
-  if (mode !== "daily" && mode !== "cumulative" && mode !== null) return;
+  if (mode !== null && !CHRONO_MODE_LABELS[mode]) return;
   if (state.mode !== "state" || state.chronoMode === mode) return;
   state.chronoMode = mode;
   clearSelectedDistrict();
@@ -952,7 +1688,13 @@ function renderDistrictLayerForSelectedState() {
     }
     state.detailsRenderToken += 1;
     detailsTitle.textContent = selectedStateChamberHeader();
-    details.innerHTML = "Switch to Upper Chamber to view Nebraska's unicameral legislature.";
+    details.innerHTML = `
+      ${statewideCardsHtml()}
+      ${stateChronoButtonsHtml()}
+      <div class="detail-break"></div>
+      Switch to Upper Chamber to view Nebraska's unicameral legislature.
+    `;
+    wireDetailsInteractions();
     resetSidebarScroll();
     return;
   }
@@ -1052,6 +1794,16 @@ function colorForFeature(feature, dataMap) {
 }
 
 function districtBaseStyle(feature, dataMap) {
+  // Districts excluded by the active filters stay on the map but recede.
+  if (!districtPassesActiveFilters(extractJoinIds(feature.properties).key)) {
+    return {
+      weight: 1.2,
+      color: "#2f3c4b",
+      opacity: 0.85,
+      fillOpacity: 0.08,
+      fillColor: "#b9c6d3",
+    };
+  }
   return {
     weight: 1.4,
     color: "#1b2733",
@@ -1416,7 +2168,7 @@ function setDetailsLoading(message) {
 function selectedStateChamberHeader() {
   if (state.chronoMode) {
     const name = state.selectedState?.name || state.selectedState?.abbr || "State";
-    return `${name} — ${state.chronoMode === "daily" ? "Daily" : "Cumulative"}`;
+    return `${name} — ${chronoModeLabel(state.chronoMode, state.chronoCumulative)}`;
   }
   return chamberDisplayName();
 }
@@ -1436,12 +2188,16 @@ function showStateChamberOverview(options = {}) {
 
 function statewideCardsHtml() {
   const fips = normalizeStateFips(state.selectedState?.fips);
-  const statewideRec = state.nationalByFips.get(fips) || null;
+  return viewCardsHtml(state.nationalByFips.get(fips) || null);
+}
 
+// The three view switches, showing whichever record they sit above: statewide
+// totals on the chamber overview, the district's own on its detail panel.
+function viewCardsHtml(rec) {
   const cards = ABEV_VIEWS
     .map((view) => {
       const stat = VIEW_MAP_STAT[view];
-      const totals = statewideRec ? statTotals(statewideRec, stat) : null;
+      const totals = rec ? statTotals(rec, stat) : null;
       const selected = state.abevView === view ? " stat-card-selected" : "";
       const value = totals && totals.total > 0 ? formatCount(totals.total) : "—";
       const netPct = netPctFromTotals(totals);
@@ -1461,34 +2217,160 @@ function statewideCardsHtml() {
   return `<div class="statewide-stats-grid three-cards">${cards}</div>`;
 }
 
+// Districts / Daily / Weekly selector shown under the statewide cards, with the
+// view's own option box below it: past-cycle columns in the district table, or
+// period-vs-running totals in a chrono view.
+function stateChronoButtonsHtml() {
+  const current = state.chronoMode || "districts";
+  const button = (value, label) =>
+    `<button type="button" class="detail-chrono-btn${current === value ? " active-chrono" : ""}" data-state-chrono="${value}">${label}</button>`;
+  return `
+    <div class="detail-chrono-buttons state-chrono-buttons">
+      ${button("districts", "Districts")}
+      ${button("daily", "Daily")}
+      ${button("weekly", "Weekly")}
+    </div>
+    ${state.chronoMode
+      ? chronoOptionBoxesHtml(state.chronoMode, state.chronoCumulative, "state-chrono-cum", null)
+      : historyModeButtonsHtml()}
+  `;
+}
+
+// The two option boxes a chrono view carries, side by side when both apply.
+function chronoOptionBoxesHtml(mode, cumulative, dataAttr, joinKey) {
+  const boxes = `${chronoCumulativeBoxHtml(mode, cumulative, dataAttr)}${historyModeButtonsHtml({ chrono: true, joinKey })}`;
+  return `<div class="option-box-row">${boxes}</div>`;
+}
+
+// A/B under the Daily/Weekly buttons: each period on its own, or the running
+// total through it. Same quiet box as the Historical ABEV selector — both are
+// options on the view above them, not view switches.
+function chronoCumulativeBoxHtml(mode, cumulative, dataAttr) {
+  if (!mode) return "";
+  const button = (value, label, title) =>
+    `<button type="button" class="option-btn${cumulative === value ? " option-btn-active" : ""}" data-${dataAttr}="${value ? "1" : "0"}" title="${escapeHtml(title)}">${escapeHtml(label)}</button>`;
+  return `
+    <div class="option-box">
+      <div class="option-box-title">${escapeHtml(CHRONO_MODE_LABELS[mode] || "Daily")} Totals</div>
+      <div class="option-box-buttons">
+        ${button(false, CHRONO_PERIOD_LABELS[mode] || CHRONO_PERIOD_LABELS.daily, "Each period counted on its own")}
+        ${button(true, "Cumulative", "Running total through each period")}
+      </div>
+    </div>
+  `;
+}
+
+// Controls the 2022/2024 columns wherever they appear. `chrono` switches the
+// wording: in the district table the columns are a single as-of snapshot, while
+// in a chrono table every row aligns to its own days-out. Hidden for states with
+// no backfill (and districts with no past-cycle record).
+function historyModeButtonsHtml({ chrono = false, joinKey = null } = {}) {
+  const available = chrono && joinKey
+    ? HISTORY_YEARS.some((year) => !!historyRecordFor(year, joinKey))
+    : historyAvailableForSelectedState();
+  if (!available) return "";
+
+  const active = historyModeFor({ chrono });
+  const daysOut = daysOutFromElectionDay();
+  const button = (value, label, title) =>
+    `<button type="button" class="option-btn${active === value ? " option-btn-active" : ""}" data-history-mode="${value}" title="${escapeHtml(title)}">${label}</button>`;
+  const onThisDayTitle = chrono
+    ? "Each row against the same days-out in 2022 / 2024"
+    : `2022 / 2024 as of ${daysOut} days before their own election day`;
+  const note = active === "onthisday"
+    ? chrono
+      ? "each row aligned to the same days-out in 2022 / 2024"
+      : `As of ${daysOut} days before election.`
+    : active === "final"
+      ? "ABEV totals on election day."
+      : "";
+  return `
+    <div class="option-box">
+      <div class="option-box-title">Historical ABEV</div>
+      <div class="option-box-buttons">
+        ${button("none", "None", "Hide the 2022 and 2024 columns")}
+        ${button("onthisday", "On This Day", onThisDayTitle)}
+        ${chrono ? "" : button("final", "Final Results", "2022 / 2024 complete election-day totals")}
+      </div>
+      ${note ? `<div class="option-box-note">${escapeHtml(note)}</div>` : ""}
+    </div>
+  `;
+}
+
+// Current-cycle header labels, split across two lines so a long label breaks
+// instead of widening its column.
+const STAT_HEAD_LINES = {
+  voted: ["2026 ABEV", "Votes"],
+};
+
+// Past-cycle headers, per view. The year rides on the first line with the stat
+// name so the break lands where it keeps the column narrowest
+// ("2024 AB" / "Returned", not "2024" / "AB Returned").
+const HISTORY_HEAD_LINES = {
+  ab: { count: (y) => [`${y} AB`, "Returned"], margin: (y) => [`${y} Ret.`, "Margin"] },
+  ev: { count: (y) => [`${y} EV`, "Total"], margin: (y) => [`${y} EV`, "Margin"] },
+  abev: { count: (y) => [`${y} ABEV`, "Total"], margin: (y) => [`${y} ABEV`, "Margin"] },
+};
+
+const MARGIN_HEAD_LINES = {
+  voted: ["2026 ABEV", "Margin"],
+};
+
 // Column layouts per view. "gap" entries render as thin separator columns;
 // labels are arrays of lines so headers wrap onto exactly two lines.
-function viewColumnDefs(view) {
+// `withHistory` is the district-table shape: past cycles first, then the current
+// one, so the columns read left-to-right as 2022 -> 2024 -> 2026. Chrono tables
+// call this without the flag and never show past cycles.
+function viewColumnDefs(view, { withHistory = false, chrono = false } = {}) {
+  let cols;
   if (view === "ab") {
-    return [
+    cols = [
       { type: "gap" },
-      { key: "requested", kind: "count", label: ["Requested"], sortKey: "requested" },
-      { key: "requested", kind: "margin", label: ["Requested", "Margin"], sortKey: "requested_margin" },
+      { key: "requested", kind: "count", label: ["2026", "Requested"], sortKey: "requested" },
+      { key: "requested", kind: "margin", label: ["2026 Req.", "Margin"], sortKey: "requested_margin" },
       { type: "gap" },
-      { key: "returned", kind: "count", label: ["Returned"], sortKey: "returned" },
-      { key: "returned", kind: "margin", label: ["Returned", "Margin"], sortKey: "returned_margin" },
+      { key: "returned", kind: "count", label: ["2026 AB", "Returned"], sortKey: "returned" },
+      { key: "returned", kind: "margin", label: ["2026 Ret.", "Margin"], sortKey: "returned_margin" },
+    ];
+  } else if (view === "ev") {
+    cols = [
+      { type: "gap" },
+      { key: "ev", kind: "count", label: ["2026 EV", "Total"], sortKey: "ev" },
+      { key: "ev", kind: "margin", label: ["2026 EV", "Margin"], sortKey: "ev_margin" },
+    ];
+  } else {
+    cols = [
+      { type: "gap" },
+      { key: "returned", kind: "count", label: ["2026 AB", "Returned"], sortKey: "returned" },
+      { key: "ev", kind: "count", label: ["2026 EV", "Total"], sortKey: "ev" },
+      { type: "gap" },
+      { key: "voted", kind: "count", label: STAT_HEAD_LINES.voted, sortKey: "voted" },
+      { key: "voted", kind: "margin", label: MARGIN_HEAD_LINES.voted, sortKey: "voted_margin" },
     ];
   }
-  if (view === "ev") {
-    return [
+  // No columns at all for a state with no backfill — otherwise a historyMode
+  // carried over from another state renders four columns of "—".
+  if (!withHistory || historyModeFor({ chrono }) === "none" || !historyAvailableForSelectedState()) return cols;
+
+  // Each year opens with its own gap, and `cols` already starts with one, so
+  // every group stays framed on both sides with no doubled separators.
+  // Headers mirror the 2026 columns beside them, broken at the same point so
+  // each column stays as narrow as its longest word.
+  const stat = VIEW_MAP_STAT[view] || "voted";
+  const heads = HISTORY_HEAD_LINES[view] || HISTORY_HEAD_LINES.abev;
+
+  const history = [];
+  for (const year of HISTORY_YEARS) {
+    // A year on retired district lines keeps its columns — so the years line up
+    // with every other state — but every cell reads N/A.
+    const na = !historyYearAppliesToSelectedState(year);
+    history.push(
       { type: "gap" },
-      { key: "ev", kind: "count", label: ["Early", "Votes"], sortKey: "ev" },
-      { key: "ev", kind: "margin", label: ["Early Votes", "Margin"], sortKey: "ev_margin" },
-    ];
+      { key: stat, year, na, kind: "count", label: heads.count(year), sortKey: `hist${year}` },
+      { key: stat, year, na, kind: "margin", label: heads.margin(year), sortKey: `hist${year}_margin` },
+    );
   }
-  return [
-    { type: "gap" },
-    { key: "returned", kind: "count", label: ["Absentees", "Returned"], sortKey: "returned" },
-    { key: "ev", kind: "count", label: ["Early", "Votes"], sortKey: "ev" },
-    { type: "gap" },
-    { key: "voted", kind: "count", label: ["Total", "Votes"], sortKey: "voted" },
-    { key: "voted", kind: "margin", label: ["ABEV", "Margin"], sortKey: "voted_margin" },
-  ];
+  return [...history, ...cols];
 }
 
 function columnLabelHtml(col) {
@@ -1504,59 +2386,110 @@ function columnVlineClass(cols, idx) {
   return cls;
 }
 
-function districtTableHtml() {
-  const rows = districtRowsForSelectedState();
-  if (!rows.length) {
-    return '<div class="loading-indicator">No district-level ABEV data for this chamber.</div>';
-  }
-  const cols = viewColumnDefs(state.abevView);
-
-  const headCells = cols
+// Header + body cells for a view's stat columns (returned/ev/voted etc.),
+// shared by the full district table, the target-district tables and the chrono
+// tables. Both district tables pass withHistory so they stay in sync; the chrono
+// tables don't. Target tables pass sortable:false.
+function viewColumnHeadCellsHtml(cols, { sortable = true } = {}) {
+  return cols
     .map((col, idx) => {
       if (col.type === "gap") return '<th class="abev-gap-cell"></th>';
-      return `<th class="abev-sortable${columnVlineClass(cols, idx)}" data-sort-scope="district" data-sort-key="${col.sortKey}">${columnLabelHtml(col)}${sortIndicator(state.districtSort, col.sortKey)}</th>`;
+      const vline = columnVlineClass(cols, idx);
+      if (!sortable) return `<th class="${vline.trim()}">${columnLabelHtml(col)}</th>`;
+      return `<th class="abev-sortable${vline}" data-sort-scope="district" data-sort-key="${col.sortKey}">${columnLabelHtml(col)}${sortIndicator(state.districtSort, col.sortKey)}</th>`;
     })
     .join("");
+}
+
+// Both cells of a past cycle whose lines no longer match today's map.
+function historyNaCellHtml(col, vline) {
+  const title = "Districts were redrawn after this election";
+  const cls = col.kind === "count" ? "abev-count-cell count-cell-na" : "margin-cell margin-cell-na";
+  return `<td class="${cls}${vline}" title="${title}">N/A</td>`;
+}
+
+function viewColumnBodyCellsHtml(cols, rec, joinKey = null) {
+  return cols
+    .map((col, idx) => {
+      if (col.type === "gap") return '<td class="abev-gap-cell"></td>';
+      const vline = columnVlineClass(cols, idx);
+      if (col.na) return historyNaCellHtml(col, vline);
+      const totals = col.year
+        ? (joinKey ? historyTotals(joinKey, col.year, col.key) : null)
+        : (rec ? statTotals(rec, col.key) : null);
+      if (col.kind === "count") {
+        return `<td class="abev-count-cell${vline}">${totals ? escapeHtml(formatCount(totals.total)) : "—"}</td>`;
+      }
+      return marginCellHtml(netPctFromTotals(totals), vline);
+    })
+    .join("");
+}
+
+// Incumbent-party cell for the full district table. Districts with no District
+// Explorer record render blank rather than "O" — the party is unknown there,
+// not "other".
+function incCellHtml(joinKey) {
+  const deRec = deRecordFor(joinKey);
+  if (!deRec) return '<td class="inc-cell abev-vline-right"></td>';
+  const party = incumbentPartyCode(deRec);
+  return `<td class="inc-cell inc-${party.toLowerCase()} abev-vline-right"><strong>${escapeHtml(party)}</strong></td>`;
+}
+
+function districtTableHtml() {
+  const allRows = districtRowsForSelectedState();
+  const rows = allRows.filter((row) => districtPassesTableFilters(row.joinKey));
+  if (!rows.length) {
+    const message = allRows.length && state.upIn2026Mode
+      ? "No districts in this chamber are up in 2026."
+      : "No district-level ABEV data for this chamber.";
+    return `<div class="loading-indicator">${escapeHtml(message)}</div>`;
+  }
+  const cols = viewColumnDefs(state.abevView, { withHistory: true });
+  const legCols = legMarginColumnsForChamber();
+
+  const headCells = viewColumnHeadCellsHtml(cols);
 
   const body = rows
     .map((row) => {
-      const cells = cols
-        .map((col, idx) => {
-          if (col.type === "gap") return '<td class="abev-gap-cell"></td>';
-          const vline = columnVlineClass(cols, idx);
-          const totals = row.rec ? statTotals(row.rec, col.key) : null;
-          if (col.kind === "count") {
-            return `<td class="abev-count-cell${vline}">${totals ? escapeHtml(formatCount(totals.total)) : "—"}</td>`;
-          }
-          return marginCellHtml(netPctFromTotals(totals), vline);
-        })
-        .join("");
+      const cells = viewColumnBodyCellsHtml(cols, row.rec, row.joinKey);
       return `
         <tr class="target-row district-select-row" data-join-key="${escapeHtml(row.joinKey)}">
-          <td class="abev-name-cell abev-vline-left abev-vline-right">${escapeHtml(row.label)}</td>
+          <td class="abev-name-cell abev-vline-left">${escapeHtml(row.label)}</td>
+          ${incCellHtml(row.joinKey)}
+          ${legCols.length ? `<td class="abev-gap-cell"></td>${legMarginCellsHtml(row.joinKey, legCols, { frame: true })}` : ""}
           ${cells}
         </tr>
       `;
     })
     .join("");
 
+  const legHead = legCols.length
+    ? `<th class="abev-gap-cell"></th>${legMarginHeadCellsHtml(legCols, { frame: true })}`
+    : "";
+  const note = legRedistrictingNote();
+
   return `
     <table class="abev-table">
       <thead>
         <tr>
-          <th class="abev-sortable abev-name-head abev-vline-left abev-vline-right" data-sort-scope="district" data-sort-key="district">Dist${sortIndicator(state.districtSort, "district")}</th>
+          <th class="abev-sortable abev-name-head abev-vline-left" data-sort-scope="district" data-sort-key="district">Dist${sortIndicator(state.districtSort, "district")}</th>
+          <th class="abev-sortable target-col-inc abev-vline-right" data-sort-scope="district" data-sort-key="inc">Inc${sortIndicator(state.districtSort, "inc")}</th>
+          ${legHead}
           ${headCells}
         </tr>
       </thead>
       <tbody>${body}</tbody>
     </table>
+    ${note ? `<div class="leg-redistricting-note">${escapeHtml(note)}</div>` : ""}
   `;
 }
 
 function stateChamberOverviewHtml() {
   return `
     ${statewideCardsHtml()}
+    ${stateChronoButtonsHtml()}
     <div class="detail-break"></div>
+    ${targetDistrictsSectionHtml()}
     <div class="detail-section-title centered-section-title">Districts</div>
     ${districtTableHtml()}
   `;
@@ -1579,6 +2512,27 @@ function districtRowsForSelectedState() {
   rows.sort((a, b) => compareDistrictLabels(a, b));
   return applySort(rows, state.districtSort, (row, key) => {
     if (key === "district") return row.sortValue;
+    // R first, then D, then split/other; unknown (no DE record) last.
+    if (key === "inc") {
+      const deRec = deRecordFor(row.joinKey);
+      if (!deRec) return Number.NEGATIVE_INFINITY;
+      return { R: 3, D: 2, S: 1, O: 0 }[incumbentPartyCode(deRec)] ?? 0;
+    }
+    const legMatch = key.match(/^leg_(\d{4})$/);
+    if (legMatch) {
+      const margin = legMarginRPositive(deRecordFor(row.joinKey), Number(legMatch[1]));
+      return typeof margin === "number" ? margin : Number.NEGATIVE_INFINITY;
+    }
+    const histMatch = key.match(/^hist(\d{4})(_margin)?$/);
+    if (histMatch) {
+      // An N/A column sorts like any other blank rather than by its hidden data.
+      if (!historyYearAppliesToSelectedState(Number(histMatch[1]))) return Number.NEGATIVE_INFINITY;
+      const totals = historyTotals(row.joinKey, Number(histMatch[1]), VIEW_MAP_STAT[state.abevView] || "voted");
+      if (!totals) return Number.NEGATIVE_INFINITY;
+      if (!histMatch[2]) return totals.total;
+      const netPct = netPctFromTotals(totals);
+      return typeof netPct === "number" ? netPct : Number.NEGATIVE_INFINITY;
+    }
     if (!row.rec) return Number.NEGATIVE_INFINITY;
     const isMargin = key.endsWith("_margin");
     const stat = isMargin ? key.slice(0, -"_margin".length) : key;
@@ -1608,12 +2562,12 @@ function compareDistrictLabels(a, b) {
 }
 
 // ---------------------------------------------------------------------------
-// Sidebar: chronological views (Daily / Cumulative)
+// Sidebar: chronological views (Daily / Weekly, each period or cumulative)
 // ---------------------------------------------------------------------------
 
 const CHRONO_STATS = ["requested", "returned", "ev"];
 
-function showChronoView() {
+function showChronoView(options = {}) {
   if (state.mode !== "state" || !state.selectedState || !state.chronoMode) return;
   state.detailsRenderToken += 1;
   const renderToken = state.detailsRenderToken;
@@ -1622,17 +2576,18 @@ function showChronoView() {
     if (state.mode !== "state" || !state.chronoMode || renderToken !== state.detailsRenderToken) return;
     details.innerHTML = chronoViewHtml();
     wireDetailsInteractions();
-    resetSidebarScroll();
+    if (!options.preserveScroll) resetSidebarScroll();
   });
 }
 
 function chronoViewHtml() {
-  const title = state.chronoMode === "daily" ? "Daily Returns" : "Cumulative Returns";
+  const title = `${chronoModeLabel(state.chronoMode, state.chronoCumulative)} Returns`;
   return `
     ${statewideCardsHtml()}
+    ${stateChronoButtonsHtml()}
     <div class="detail-break"></div>
     <div class="detail-section-title centered-section-title">${escapeHtml(title)}</div>
-    ${chronoTableHtml(chronoRows(), state.chronoMode)}
+    ${chronoTableHtml(chronoRows(), { cumulative: state.chronoCumulative, joinKey: null })}
   `;
 }
 
@@ -1693,7 +2648,7 @@ function chronoStatsHaveData(stats) {
 // window (before it opens, after election day, unknown/bad dates, pre-2026)
 // folds into a single "Earlier" bucket so totals always account for every
 // vote. In cumulative mode that bucket is the running-total baseline.
-function buildChronoRows(byDate, mode, earlierLabel) {
+function buildChronoRows(byDate, mode, earlierLabel, cumulative = false) {
   if (!byDate || !byDate.size) return [];
   const todayIso = localTodayIso();
   const electionDay = electionDayForSelectedState();
@@ -1713,34 +2668,96 @@ function buildChronoRows(byDate, mode, earlierLabel) {
   dateKeys.sort();
   const hasEarlier = chronoStatsHaveData(earlier);
 
-  if (mode === "daily") {
-    const rows = dateKeys
-      .map((key) => ({ label: chronoDateLabel(key), stats: addChronoStats(emptyChronoStats(), byDate.get(key)), special: false }))
-      .reverse(); // newest first
-    if (hasEarlier) rows.push({ label: earlierLabel, stats: earlier, special: true });
-    return rows;
+  // One bucket per period, oldest first: a day each, or a Mon-Sun week each.
+  let periods;
+  if (mode === "weekly") {
+    const weeks = new Map(); // Monday -> summed stats
+    for (const key of dateKeys) {
+      const weekStart = weekStartIso(key);
+      if (!weeks.has(weekStart)) weeks.set(weekStart, emptyChronoStats());
+      addChronoStats(weeks.get(weekStart), byDate.get(key));
+    }
+    // The span is clamped to the window like the label is, so the past-cycle
+    // columns line up with exactly the days this row could have counted.
+    periods = [...weeks.keys()].sort().map((weekStart) => {
+      const weekEnd = addIsoDays(weekStart, 6);
+      return {
+        label: chronoWeekLabel(weekStart, startIso, cutoffIso),
+        stats: weeks.get(weekStart),
+        startIso: startIso && weekStart < startIso ? startIso : weekStart,
+        endIso: cutoffIso && weekEnd > cutoffIso ? cutoffIso : weekEnd,
+      };
+    });
+  } else {
+    periods = dateKeys.map((key) => ({
+      label: chronoDateLabel(key),
+      stats: addChronoStats(emptyChronoStats(), byDate.get(key)),
+      startIso: key,
+      endIso: key,
+    }));
   }
 
-  const running = addChronoStats(emptyChronoStats(), earlier);
-  const rows = [];
-  for (const key of dateKeys) {
-    addChronoStats(running, byDate.get(key));
-    rows.push({ label: chronoDateLabel(key), stats: structuredClone(running), special: false });
+  // Cumulative starts from the "Earlier" bucket, so the newest row equals the
+  // all-time total.
+  if (cumulative) {
+    const running = addChronoStats(emptyChronoStats(), earlier);
+    for (const period of periods) {
+      addChronoStats(running, period.stats);
+      period.stats = structuredClone(running);
+    }
   }
-  rows.reverse(); // newest (= all-time total) first
+
+  const rows = periods.map((period) => ({ ...period, special: false })).reverse(); // newest first
   if (hasEarlier) rows.push({ label: earlierLabel, stats: earlier, special: true });
   return rows;
 }
 
 function chronoRows() {
   const fips = normalizeStateFips(state.selectedState?.fips);
-  return buildChronoRows(chronoByDate(state.timelineByFips.get(fips)), state.chronoMode, "Earlier");
+  return buildChronoRows(
+    chronoByDate(state.timelineByFips.get(fips)),
+    state.chronoMode,
+    "Earlier",
+    state.chronoCumulative
+  );
 }
 
 function chronoDateLabel(isoDate) {
   const m = String(isoDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return isoDate;
   return `${Number(m[2])}/${Number(m[3])}`;
+}
+
+// Granularity (the Daily / Weekly buttons) and, under it, whether each row is
+// that period alone or the running total through it.
+const CHRONO_MODE_LABELS = { daily: "Daily", weekly: "Weekly" };
+const CHRONO_PERIOD_LABELS = { daily: "Day-to-Day", weekly: "Week-to-Week" };
+
+function chronoModeLabel(mode, cumulative) {
+  if (cumulative) return "Cumulative";
+  return CHRONO_PERIOD_LABELS[mode] || CHRONO_PERIOD_LABELS.daily;
+}
+
+function addIsoDays(iso, n) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// Monday that starts the week containing `iso` (weeks run Mon -> Sun).
+function weekStartIso(iso) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  return addIsoDays(iso, -((d.getUTCDay() + 6) % 7)); // getUTCDay: 0=Sun
+}
+
+// "3/9-3/15". The first and last weeks of a state's window are usually partial,
+// so the ends are clamped to the window — a label never claims days the bucket
+// could not have counted.
+function chronoWeekLabel(weekStart, startIso, cutoffIso) {
+  const weekEnd = addIsoDays(weekStart, 6);
+  const from = startIso && weekStart < startIso ? startIso : weekStart;
+  const to = cutoffIso && weekEnd > cutoffIso ? cutoffIso : weekEnd;
+  return `${chronoDateLabel(from)}-${chronoDateLabel(to)}`;
 }
 
 function chronoStatTotals(stats, stat) {
@@ -1757,11 +2774,13 @@ function chronoStatTotals(stats, stat) {
   return { ...buckets, total, net: buckets.rep - buckets.dem };
 }
 
-function chronoTableHtml(rows, mode) {
+// `joinKey` scopes the past-cycle columns: a district's own history, or null for
+// the statewide timeline.
+function chronoTableHtml(rows, { cumulative = false, joinKey = null } = {}) {
   if (!rows.length) {
     return '<div class="loading-indicator">No chronological ABEV data available.</div>';
   }
-  const cols = viewColumnDefs(state.abevView);
+  const cols = viewColumnDefs(state.abevView, { withHistory: true, chrono: true });
 
   const headCells = cols
     .map((col, idx) => {
@@ -1772,19 +2791,25 @@ function chronoTableHtml(rows, mode) {
 
   const body = rows
     .map((row) => {
-      const dataCols = cols.filter((col) => col.type !== "gap");
+      // Emptiness is judged on the current cycle only — a row is worth showing
+      // or not on its own returns, not on what 2022 happened to do.
+      const dataCols = cols.filter((col) => col.type !== "gap" && !col.year);
       const allZero = dataCols.every((col) => chronoStatTotals(row.stats, col.key).total === 0);
-      if (allZero && mode === "daily" && !row.special) return "";
+      // Period rows with no activity are noise; running totals keep every row.
+      if (allZero && !cumulative && !row.special) return "";
       if (allZero && row.special) return "";
       const cells = cols
         .map((col, idx) => {
           if (col.type === "gap") return '<td class="abev-gap-cell"></td>';
           const vline = columnVlineClass(cols, idx);
-          const totals = chronoStatTotals(row.stats, col.key);
+          if (col.na) return historyNaCellHtml(col, vline);
+          const totals = col.year
+            ? chronoHistoryTotals(row, col.year, col.key, { cumulative, joinKey })
+            : chronoStatTotals(row.stats, col.key);
           if (col.kind === "count") {
-            return `<td class="abev-count-cell${vline}">${escapeHtml(formatCount(totals.total))}</td>`;
+            return `<td class="abev-count-cell${vline}">${totals ? escapeHtml(formatCount(totals.total)) : "—"}</td>`;
           }
-          const netPct = totals.total > 0 ? (totals.net / totals.total) * 100 : null;
+          const netPct = totals && totals.total > 0 ? (totals.net / totals.total) * 100 : null;
           return marginCellHtml(netPct, vline);
         })
         .join("");
@@ -1808,6 +2833,549 @@ function chronoTableHtml(rows, mode) {
       <tbody>${body}</tbody>
     </table>
   `;
+}
+
+// ---------------------------------------------------------------------------
+// Trend graph (tab + overlay panel on the map)
+// ---------------------------------------------------------------------------
+
+const TREND_COLORS = {
+  rep: "#f82644",
+  dem: "#3d8bff",
+  toss: "#a86edd",
+  margin: "#f2f6fa",
+};
+
+// Layout constants for the SVG chart (viewBox units).
+const TREND_W = 720;
+const TREND_H = 340;
+const TREND_PAD = { top: 16, right: 58, bottom: 34, left: 60 };
+
+let trendRenderCache = null; // { points, xOf, leftMax, rightMax } for tooltip lookups
+
+function initTrendChart() {
+  const container = map.getContainer();
+
+  const tab = document.createElement("button");
+  tab.type = "button";
+  tab.className = "trend-tab";
+  tab.innerHTML = 'Trend Graph <span class="trend-tab-arrow">▾</span>';
+  tab.setAttribute("aria-label", "Toggle trend graph");
+  tab.addEventListener("click", () => {
+    if (!trendChartContext()) return;
+    state.trendChartOpen = !state.trendChartOpen;
+    updateTrendChartUi();
+  });
+  container.appendChild(tab);
+
+  const panel = document.createElement("div");
+  panel.className = "trend-panel";
+  panel.hidden = true;
+  container.appendChild(panel);
+
+  panel.addEventListener("change", (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.dataset.trendEndToday !== undefined) {
+      state.trendChartEndAtToday = target.checked;
+      renderTrendChart();
+      return;
+    }
+    const year = Number(target.dataset.trendYear || 0);
+    if (year) {
+      state.trendYears[year] = target.checked;
+      renderTrendChart();
+    }
+  });
+
+  // Keep map gestures from firing through the overlay UI.
+  for (const el of [tab, panel]) {
+    L.DomEvent.disableClickPropagation(el);
+    L.DomEvent.disableScrollPropagation(el);
+  }
+
+  state.trendTabEl = tab;
+  state.trendPanelEl = panel;
+}
+
+// What the graph should show right now, or null when it is unavailable
+// (national view, or the plain statewide district-table view).
+function trendChartContext() {
+  if (state.mode !== "state" || !state.selectedState) return null;
+
+  const layer = state.selectedDistrictLayer;
+  if (layer?.__featureRef) {
+    const joinInfo = extractJoinIds(layer.__featureRef.properties);
+    const rec = layer.__dataMapRef?.get(joinInfo.key);
+    return {
+      title: districtTitle(layer.__featureRef.properties, joinInfo),
+      timeline: rec?.timeline || null,
+      joinKey: joinInfo.key,
+      mode: state.detailChronoMode,
+      cumulative: state.detailChronoCumulative,
+    };
+  }
+
+  if (state.chronoMode) {
+    const fips = normalizeStateFips(state.selectedState.fips);
+    return {
+      title: state.selectedState.name || state.selectedState.abbr || "State",
+      timeline: state.timelineByFips.get(fips) || null,
+      joinKey: null,
+      mode: state.chronoMode,
+      cumulative: state.chronoCumulative,
+    };
+  }
+
+  return null;
+}
+
+function updateTrendChartUi() {
+  const tab = state.trendTabEl;
+  const panel = state.trendPanelEl;
+  if (!tab || !panel) return;
+
+  const inState = state.mode === "state";
+  const ctx = inState ? trendChartContext() : null;
+  const available = !!ctx;
+
+  tab.classList.toggle("trend-tab-hidden", !inState);
+  tab.classList.toggle("trend-tab-disabled", !available);
+  tab.disabled = !available;
+
+  if (!available && state.trendChartOpen) {
+    state.trendChartOpen = false; // auto-close when returning to the district-table view
+  }
+
+  const open = available && state.trendChartOpen;
+  tab.classList.toggle("trend-tab-open", open);
+  panel.hidden = !open;
+  if (open) renderTrendChart();
+}
+
+function trendIsoDateRe() {
+  return /^\d{4}-\d{2}-\d{2}$/;
+}
+
+function nextIsoDay(iso) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function daysBetweenIso(a, b) {
+  return Math.round((new Date(`${b}T00:00:00Z`) - new Date(`${a}T00:00:00Z`)) / 86400000);
+}
+
+function trendCurrentYear() {
+  return Number(electionDayForSelectedState().slice(0, 4));
+}
+
+// Which cycles this scope could draw, oldest first. A past year only counts if
+// the scope (district or state) actually has a backfilled timeline, and if its
+// district lines still match today's — a year that reads N/A in the tables has
+// no line to draw either.
+function trendYearsForScope(ctx) {
+  const years = HISTORY_YEARS.filter(
+    (year) => historyYearAppliesToSelectedState(year) && !!historyTimelineForScope(year, ctx.joinKey)
+  );
+  years.push(trendCurrentYear());
+  return years;
+}
+
+function trendSelectedYears(ctx) {
+  return trendYearsForScope(ctx).filter((year) => state.trendYears[year]);
+}
+
+// A year's timeline keyed by date, with past years shifted onto the current
+// cycle's calendar — each date re-expressed as the day that sits the same
+// distance from this cycle's election day. That puts every year on one x-axis.
+// Undated past-year rows are dropped rather than folded into the baseline, for
+// the same reason historyTotalsInRange skips them.
+function trendByDateForYear(ctx, year) {
+  if (year === trendCurrentYear()) return chronoByDate(ctx.timeline);
+
+  const byDate = chronoByDate(historyTimelineForScope(year, ctx.joinKey));
+  if (!byDate) return null;
+  const pastElectionDay = HISTORY_ELECTION_DAYS[year];
+  const electionDay = electionDayForSelectedState();
+  const isoRe = trendIsoDateRe();
+
+  const shifted = new Map();
+  for (const [key, stats] of byDate) {
+    if (!isoRe.test(key)) continue;
+    const at = addIsoDays(electionDay, -daysBetweenIso(key, pastElectionDay));
+    if (!shifted.has(at)) shifted.set(at, emptyChronoStats());
+    addChronoStats(shifted.get(at), stats);
+  }
+  return shifted;
+}
+
+// Build the chart's day-by-day series. Mirrors buildChronoRows(): everything
+// outside the state's ABEV window folds into a baseline that seeds the
+// cumulative running totals, so the last cumulative point matches the tables.
+function buildTrendSeries(ctx) {
+  const years = trendSelectedYears(ctx);
+  if (!years.length) return null;
+
+  const stat = mapStat();
+  const isoRe = trendIsoDateRe();
+  const todayIso = localTodayIso();
+  const electionDay = electionDayForSelectedState();
+
+  const currentByDate = chronoByDate(ctx.timeline);
+  const dataDates = [...(currentByDate?.keys() || [])].filter((k) => isoRe.test(k)).sort();
+  const start = abevStartForSelectedState() || dataDates[0] || null;
+  if (!start) return null;
+
+  // X-axis domain: ABEV start -> election day, or -> today when toggled.
+  const domainEnd = state.trendChartEndAtToday
+    ? (todayIso < electionDay ? todayIso : electionDay)
+    : electionDay;
+  if (domainEnd < start) return null;
+
+  const cutoff = electionDay < todayIso ? electionDay : todayIso;
+  const series = [];
+  for (const year of years) {
+    const byDate = trendByDateForYear(ctx, year);
+    if (!byDate || !byDate.size) continue;
+    // Past cycles are finished, so they run the full domain; only the current
+    // one stops at today.
+    const yearCutoff = year === trendCurrentYear() ? cutoff : domainEnd;
+    const points = trendPointsFor(byDate, { ctx, stat, start, domainEnd, cutoff: yearCutoff, isoRe });
+    if (points.length) series.push({ year, points });
+  }
+  if (!series.length) return null;
+  return { series, start, end: domainEnd, stat };
+}
+
+function trendPointsFor(byDate, { ctx, stat, start, domainEnd, cutoff, isoRe }) {
+  const baseline = emptyChronoStats();
+  const inWindow = new Map();
+  for (const [key, stats] of byDate) {
+    if (!isoRe.test(key) || key > cutoff || key < start) {
+      addChronoStats(baseline, stats);
+      continue;
+    }
+    inWindow.set(key, stats);
+  }
+
+  // Lines stop at the last day that can have data; the axis keeps running.
+  let lastData = cutoff < domainEnd ? cutoff : domainEnd;
+  if (lastData < start) lastData = start;
+
+  const points = [];
+
+  // Weekly: one point per Mon-Sun bucket, plotted at the week's last counted
+  // day so it sits at the end of the span it summarizes.
+  if (ctx.mode === "weekly") {
+    const weekTotals = new Map();
+    for (const [key, stats] of inWindow) {
+      const weekStart = weekStartIso(key);
+      if (!weekTotals.has(weekStart)) weekTotals.set(weekStart, emptyChronoStats());
+      addChronoStats(weekTotals.get(weekStart), stats);
+    }
+    const weekRunning = addChronoStats(emptyChronoStats(), baseline);
+    for (let weekStart = weekStartIso(start); weekStart <= lastData; weekStart = addIsoDays(weekStart, 7)) {
+      const weekStats = weekTotals.get(weekStart) || emptyChronoStats();
+      if (ctx.cumulative) addChronoStats(weekRunning, weekStats);
+      const totals = chronoStatTotals(ctx.cumulative ? weekRunning : weekStats, stat);
+      let at = addIsoDays(weekStart, 6);
+      if (at > lastData) at = lastData;
+      if (at < start) at = start;
+      points.push({
+        date: at,
+        rep: totals.rep,
+        dem: totals.dem,
+        toss: totals.toss,
+        netPct: totals.total > 0 ? (totals.net / totals.total) * 100 : null,
+      });
+    }
+    return points;
+  }
+
+  const running = addChronoStats(emptyChronoStats(), baseline);
+  for (let day = start; day <= lastData; day = nextIsoDay(day)) {
+    const dayStats = inWindow.get(day) || null;
+    let totals;
+    if (ctx.cumulative) {
+      if (dayStats) addChronoStats(running, dayStats);
+      totals = chronoStatTotals(running, stat);
+    } else {
+      totals = chronoStatTotals(dayStats || emptyChronoStats(), stat);
+    }
+    points.push({
+      date: day,
+      rep: totals.rep,
+      dem: totals.dem,
+      toss: totals.toss,
+      netPct: totals.total > 0 ? (totals.net / totals.total) * 100 : null,
+    });
+  }
+
+  return points;
+}
+
+function trendNiceCeil(value) {
+  if (!(value > 0)) return 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(value)));
+  const n = value / pow;
+  const mult = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
+  return mult * pow;
+}
+
+function trendAxisCount(value) {
+  if (value >= 1e6) return `${Number((value / 1e6).toFixed(1))}M`;
+  if (value >= 1000) return `${Number((value / 1000).toFixed(value >= 10000 ? 0 : 1))}k`;
+  return String(Math.round(value));
+}
+
+function trendAxisMargin(value) {
+  if (Math.abs(value) < 0.05) return "0";
+  const abs = Number(Math.abs(value).toFixed(1));
+  return value > 0 ? `R+${abs}` : `D+${abs}`;
+}
+
+function renderTrendChart() {
+  const panel = state.trendPanelEl;
+  if (!panel) return;
+  const ctx = trendChartContext();
+  if (!ctx) return;
+
+  const modeLabel = chronoModeLabel(ctx.mode, ctx.cumulative);
+  const statLabel = STAT_LABELS[mapStat()] || "Votes";
+  const series = buildTrendSeries(ctx);
+  trendRenderCache = null;
+
+  const availableYears = trendYearsForScope(ctx);
+  const yearToggles = availableYears
+    .map((year) => `
+      <label class="trend-year-toggle">
+        <input type="checkbox" data-trend-year="${year}" ${state.trendYears[year] ? "checked" : ""} />
+        ${year}
+      </label>
+    `)
+    .join("");
+
+  const header = `
+    <div class="trend-header">
+      <div class="trend-title">${escapeHtml(ctx.title)} — ${escapeHtml(modeLabel)} ${escapeHtml(statLabel)}</div>
+      <div class="trend-controls">
+        ${availableYears.length > 1 ? `<span class="trend-year-toggles">${yearToggles}</span>` : ""}
+        <label class="trend-end-toggle">
+          <input type="checkbox" data-trend-end-today ${state.trendChartEndAtToday ? "checked" : ""} />
+          End graph at current date
+        </label>
+      </div>
+    </div>
+  `;
+
+  if (!series || !series.series.length) {
+    const message = trendSelectedYears(ctx).length
+      ? "No chronological ABEV data available."
+      : "Select a cycle to graph.";
+    panel.innerHTML = `${header}<div class="trend-empty">${escapeHtml(message)}</div>`;
+    return;
+  }
+
+  // Past cycles share the party colors and are told apart by line style, so the
+  // legend explains the colors once and the styles once.
+  const yearKeys = series.series.length > 1
+    ? series.series
+        .map((s) => `<span class="trend-legend-item"><span class="trend-swatch trend-swatch-line" style="border-top-style:${trendYearStyle(s.year).legend}"></span>${s.year}</span>`)
+        .join("")
+    : "";
+
+  const legend = `
+    <div class="trend-legend">
+      <span class="trend-legend-item"><span class="trend-swatch" style="background:${TREND_COLORS.rep}"></span>GOP</span>
+      <span class="trend-legend-item"><span class="trend-swatch" style="background:${TREND_COLORS.dem}"></span>Dem</span>
+      <span class="trend-legend-item"><span class="trend-swatch" style="background:${TREND_COLORS.toss}"></span>Swing</span>
+      <span class="trend-legend-item"><span class="trend-swatch trend-swatch-dashed"></span>Net Margin % <span class="trend-legend-axis">(right axis)</span></span>
+      ${yearKeys}
+    </div>
+  `;
+
+  panel.innerHTML = `${header}${trendSvgHtml(series, ctx.mode)}${legend}<div class="trend-tooltip" hidden></div>`;
+  wireTrendChartHover(panel);
+}
+
+// Line style per cycle: the current one solid and full strength, past ones
+// progressively lighter and more broken up.
+function trendYearStyle(year) {
+  if (year === trendCurrentYear()) return { dash: "", width: 2, opacity: 1, legend: "solid" };
+  if (year === Math.max(...HISTORY_YEARS)) return { dash: "7 4", width: 1.7, opacity: 0.8, legend: "dashed" };
+  return { dash: "2 3", width: 1.5, opacity: 0.62, legend: "dotted" };
+}
+
+function trendSvgHtml(seriesSet, mode) {
+  const { series, start, end } = seriesSet;
+  const allPoints = series.flatMap((s) => s.points);
+  const plotW = TREND_W - TREND_PAD.left - TREND_PAD.right;
+  const plotH = TREND_H - TREND_PAD.top - TREND_PAD.bottom;
+  const totalDays = Math.max(1, daysBetweenIso(start, end));
+
+  // Axes are shared, so every selected cycle is measured on the same scale.
+  const leftMax = trendNiceCeil(Math.max(1, ...allPoints.map((p) => Math.max(p.rep, p.dem, p.toss))));
+  const rawMarginMax = Math.max(0, ...allPoints.map((p) => (typeof p.netPct === "number" ? Math.abs(p.netPct) : 0)));
+  const rightMax = Math.min(100, Math.max(5, Math.ceil(rawMarginMax / 5) * 5));
+
+  const xOf = (iso) => TREND_PAD.left + (daysBetweenIso(start, iso) / totalDays) * plotW;
+  const yLeft = (v) => TREND_PAD.top + plotH - (Math.max(0, Math.min(leftMax, v)) / leftMax) * plotH;
+  const yRight = (v) => TREND_PAD.top + plotH / 2 - (Math.max(-rightMax, Math.min(rightMax, v)) / rightMax) * (plotH / 2);
+
+  trendRenderCache = { series, start, totalDays, leftMax, rightMax, mode };
+
+  // Horizontal gridlines + left axis labels (quarters of leftMax).
+  let grid = "";
+  let leftLabels = "";
+  for (let i = 0; i <= 4; i += 1) {
+    const v = (leftMax * i) / 4;
+    const y = yLeft(v);
+    grid += `<line x1="${TREND_PAD.left}" y1="${y.toFixed(1)}" x2="${TREND_W - TREND_PAD.right}" y2="${y.toFixed(1)}" class="trend-grid" />`;
+    leftLabels += `<text x="${TREND_PAD.left - 6}" y="${(y + 3).toFixed(1)}" class="trend-axis-label trend-axis-left">${trendAxisCount(v)}</text>`;
+  }
+
+  // Right axis labels (margin) + a dotted zero line for that axis.
+  let rightLabels = "";
+  for (const v of [rightMax, rightMax / 2, 0, -rightMax / 2, -rightMax]) {
+    rightLabels += `<text x="${TREND_W - TREND_PAD.right + 6}" y="${(yRight(v) + 3).toFixed(1)}" class="trend-axis-label trend-axis-right ${v > 0 ? "trend-axis-r" : v < 0 ? "trend-axis-d" : ""}">${trendAxisMargin(v)}</text>`;
+  }
+  const zeroLine = `<line x1="${TREND_PAD.left}" y1="${yRight(0).toFixed(1)}" x2="${TREND_W - TREND_PAD.right}" y2="${yRight(0).toFixed(1)}" class="trend-zero-line" />`;
+
+  // X ticks: ~6 evenly spaced days across the domain.
+  let xLabels = "";
+  const tickStep = Math.max(1, Math.ceil(totalDays / 6));
+  for (let dayIdx = 0; dayIdx <= totalDays; dayIdx += tickStep) {
+    let iso = start;
+    for (let i = 0; i < dayIdx; i += 1) iso = nextIsoDay(iso);
+    const x = TREND_PAD.left + (dayIdx / totalDays) * plotW;
+    xLabels += `<text x="${x.toFixed(1)}" y="${TREND_H - TREND_PAD.bottom + 16}" class="trend-axis-label trend-axis-x">${chronoDateLabel(iso)}</text>`;
+  }
+
+  const linePath = (points, valueOf) => {
+    let d = "";
+    let pen = false;
+    for (const p of points) {
+      const v = valueOf(p);
+      if (typeof v !== "number") {
+        pen = false;
+        continue;
+      }
+      d += `${pen ? "L" : "M"}${xOf(p.date).toFixed(1)},${v.toFixed(1)}`;
+      pen = true;
+    }
+    return d;
+  };
+
+  // Oldest cycle first so the current one draws on top.
+  let lines = "";
+  let dots = "";
+  for (const { year, points } of series) {
+    const style = trendYearStyle(year);
+    const dash = style.dash ? ` stroke-dasharray="${style.dash}"` : "";
+    const line = (path, color, width) =>
+      `<path d="${path}" fill="none" stroke="${color}" stroke-width="${width}" stroke-opacity="${style.opacity}" stroke-linejoin="round"${dash} />`;
+    lines += line(linePath(points, (p) => yLeft(p.toss)), TREND_COLORS.toss, style.width);
+    lines += line(linePath(points, (p) => yLeft(p.dem)), TREND_COLORS.dem, style.width);
+    lines += line(linePath(points, (p) => yLeft(p.rep)), TREND_COLORS.rep, style.width);
+    lines += `<path d="${linePath(points, (p) => (typeof p.netPct === "number" ? yRight(p.netPct) : null))}" fill="none" stroke="${TREND_COLORS.margin}" stroke-width="${(style.width - 0.2).toFixed(1)}" stroke-opacity="${style.opacity}" stroke-dasharray="5 4" stroke-linejoin="round" />`;
+
+    // End dots make single-day series visible and mark the latest reading.
+    const last = points[points.length - 1];
+    if (!last) continue;
+    const dot = (y, color) =>
+      `<circle cx="${xOf(last.date).toFixed(1)}" cy="${y.toFixed(1)}" r="2.6" fill="${color}" fill-opacity="${style.opacity}" />`;
+    dots += dot(yLeft(last.rep), TREND_COLORS.rep);
+    dots += dot(yLeft(last.dem), TREND_COLORS.dem);
+    dots += dot(yLeft(last.toss), TREND_COLORS.toss);
+    if (typeof last.netPct === "number") dots += dot(yRight(last.netPct), TREND_COLORS.margin);
+  }
+
+  return `
+    <svg class="trend-svg" viewBox="0 0 ${TREND_W} ${TREND_H}" role="img" aria-label="ABEV trend graph">
+      ${grid}
+      ${zeroLine}
+      ${leftLabels}
+      ${rightLabels}
+      ${xLabels}
+      ${lines}
+      ${dots}
+      <line class="trend-crosshair" x1="0" y1="${TREND_PAD.top}" x2="0" y2="${TREND_H - TREND_PAD.bottom}" style="display:none" />
+      <rect class="trend-hover-rect" x="${TREND_PAD.left}" y="${TREND_PAD.top}" width="${plotW}" height="${plotH}" fill="transparent" />
+    </svg>
+  `;
+}
+
+function wireTrendChartHover(panel) {
+  const svg = panel.querySelector(".trend-svg");
+  const hoverRect = panel.querySelector(".trend-hover-rect");
+  const crosshair = panel.querySelector(".trend-crosshair");
+  const tooltip = panel.querySelector(".trend-tooltip");
+  if (!svg || !hoverRect || !crosshair || !tooltip) return;
+
+  const hide = () => {
+    crosshair.style.display = "none";
+    tooltip.hidden = true;
+  };
+
+  hoverRect.addEventListener("mousemove", (e) => {
+    const cache = trendRenderCache;
+    if (!cache || !cache.series.length) return hide();
+
+    const rect = svg.getBoundingClientRect();
+    const viewX = ((e.clientX - rect.left) / rect.width) * TREND_W;
+    const plotW = TREND_W - TREND_PAD.left - TREND_PAD.right;
+    const dayIdx = Math.max(0, Math.min(cache.totalDays, Math.round(((viewX - TREND_PAD.left) / plotW) * cache.totalDays)));
+    const hoveredIso = addIsoDays(cache.start, dayIdx);
+
+    // Series can have different point spacing (weekly buckets, cycles that stop
+    // at different dates), so each is sampled at the point nearest the cursor.
+    const readings = [];
+    for (const { year, points } of cache.series) {
+      let best = null;
+      let bestGap = Infinity;
+      for (const p of points) {
+        const gap = Math.abs(daysBetweenIso(p.date, hoveredIso));
+        if (gap < bestGap) {
+          bestGap = gap;
+          best = p;
+        }
+      }
+      if (best) readings.push({ year, point: best });
+    }
+    if (!readings.length) return hide();
+
+    const x = TREND_PAD.left + (dayIdx / cache.totalDays) * plotW;
+    crosshair.setAttribute("x1", x.toFixed(1));
+    crosshair.setAttribute("x2", x.toFixed(1));
+    crosshair.style.display = "";
+
+    const multi = readings.length > 1;
+    tooltip.innerHTML = `
+      <div class="trend-tooltip-date">${chronoDateLabel(hoveredIso)}</div>
+      ${readings
+        .map(({ year, point }) => `
+          ${multi ? `<div class="trend-tooltip-year">${year}</div>` : ""}
+          <div><span class="trend-tt-r">GOP</span> ${escapeHtml(formatCount(point.rep))}</div>
+          <div><span class="trend-tt-d">Dem</span> ${escapeHtml(formatCount(point.dem))}</div>
+          <div><span class="trend-tt-t">Swing</span> ${escapeHtml(formatCount(point.toss))}</div>
+          <div><span class="trend-tt-m">Margin</span> ${netPctHtml(point.netPct)}</div>
+        `)
+        .join("")}
+    `;
+    tooltip.hidden = false;
+
+    // Position within the panel, flipping sides at the midpoint.
+    const panelRect = panel.getBoundingClientRect();
+    const pxX = rect.left - panelRect.left + (x / TREND_W) * rect.width;
+    const onLeftHalf = x < TREND_W / 2;
+    tooltip.style.left = onLeftHalf ? `${pxX + 12}px` : "auto";
+    tooltip.style.right = onLeftHalf ? "auto" : `${panelRect.width - pxX + 12}px`;
+    tooltip.style.top = `${rect.top - panelRect.top + 18}px`;
+  });
+
+  hoverRect.addEventListener("mouseleave", hide);
 }
 
 // ---------------------------------------------------------------------------
@@ -1854,12 +3422,13 @@ function toggleSort(sortState, key) {
 // Sidebar: district detail
 // ---------------------------------------------------------------------------
 
-function showDistrictDetailPanel(properties, joinInfo, rec) {
+function showDistrictDetailPanel(properties, joinInfo, rec, options = {}) {
   state.detailsRenderToken += 1;
   detailsTitle.textContent = chamberDisplayName();
   details.innerHTML = districtDetailHtml(properties, joinInfo, rec);
   wireDetailsInteractions();
-  resetSidebarScroll();
+  if (!options.preserveScroll) resetSidebarScroll();
+  updateTrendChartUi();
 }
 
 function districtTitle(properties, joinInfo) {
@@ -1920,7 +3489,7 @@ function districtDetailHtml(properties, joinInfo, rec) {
 
   return `
     <div class="detail-title detail-title-large">${escapeHtml(title)}</div>
-    <div class="detail-break"></div>
+    ${viewCardsHtml(rec)}
     <table class="abev-detail-table">
       <thead>
         <tr><th></th><th>Total</th><th>GOP</th><th>Dem</th><th>Swing</th><th class="margin-head">Margin</th></tr>
@@ -1929,24 +3498,39 @@ function districtDetailHtml(properties, joinInfo, rec) {
     </table>
     ${rateLines.length ? `<div class="detail-meta">${rateLines.join("<br/>")}</div><div class="detail-break"></div>` : ""}
     ${compositionHtml}
-    ${districtChronoSectionHtml(rec)}
+    ${districtChronoSectionHtml(rec, joinInfo.key)}
   `;
 }
 
-function districtChronoSectionHtml(rec) {
+// Redraw the open district panel after a chrono/history option changes. Those
+// toggles sit well down the panel, so the scroll position is kept.
+function rerenderSelectedDistrictDetail() {
+  const layer = state.selectedDistrictLayer;
+  const feature = layer?.__featureRef;
+  if (!feature) return;
+  const joinInfo = extractJoinIds(feature.properties);
+  showDistrictDetailPanel(feature.properties, joinInfo, layer.__dataMapRef?.get(joinInfo.key), {
+    preserveScroll: true,
+  });
+  updateTrendChartUi();
+}
+
+function districtChronoSectionHtml(rec, joinKey) {
   const byDate = chronoByDate(rec?.timeline);
   if (!byDate || !byDate.size) return "";
   const mode = state.detailChronoMode;
-  const rows = buildChronoRows(byDate, mode, "Unk");
+  const cumulative = state.detailChronoCumulative;
+  const rows = buildChronoRows(byDate, mode, "Unk", cumulative);
   const button = (value, label) =>
     `<button type="button" class="detail-chrono-btn${mode === value ? " active-chrono" : ""}" data-detail-chrono="${value}">${label}</button>`;
   return `
-    <div class="detail-section-title centered-section-title">${mode === "daily" ? "Daily Returns" : "Cumulative Returns"}</div>
+    <div class="detail-section-title centered-section-title">${chronoModeLabel(mode, cumulative)} Returns</div>
     <div class="detail-chrono-buttons">
       ${button("daily", "Daily")}
-      ${button("cumulative", "Cumulative")}
+      ${button("weekly", "Weekly")}
     </div>
-    ${chronoTableHtml(rows, mode)}
+    ${chronoOptionBoxesHtml(mode, cumulative, "detail-chrono-cum", joinKey)}
+    ${chronoTableHtml(rows, { cumulative, joinKey })}
   `;
 }
 
@@ -1992,6 +3576,14 @@ function wireDetailsInteractions() {
     const targetEl = event.target instanceof Element ? event.target : null;
     if (!targetEl) return;
 
+    // The tier button shares its row with the group's first district; hovering
+    // it shouldn't highlight that district on the map.
+    if (targetEl.closest(".target-tier-group-cell")) {
+      setHoveredTableRow(null);
+      setHoveredStateRow(null);
+      return;
+    }
+
     const districtRow = targetEl.closest(".district-select-row[data-join-key]");
     if (districtRow) {
       setHoveredStateRow(null);
@@ -2036,17 +3628,71 @@ function wireDetailsInteractions() {
       return;
     }
 
+    // "Target Districts" heading toggles the whole mode; section headers and
+    // tier cells narrow it.
+    if (targetEl.closest("#targetModeHeader")) {
+      setTargetDistrictsMode(!state.targetDistrictsMode);
+      return;
+    }
+
+    const targetFilterEl = targetEl.closest(".target-filter-toggle[data-target-section]");
+    if (targetFilterEl) {
+      const section = String(targetFilterEl.dataset.targetSection || "").trim();
+      const tier = districtTierValue(targetFilterEl.dataset.targetTier);
+      toggleTargetFilterControl(section, tier);
+      return;
+    }
+
+    const stateChronoBtn = targetEl.closest("[data-state-chrono]");
+    if (stateChronoBtn) {
+      const value = String(stateChronoBtn.dataset.stateChrono || "");
+      if (value === "districts" || CHRONO_MODE_LABELS[value]) {
+        setChronoMode(value === "districts" ? null : value);
+      }
+      return;
+    }
+
+    const stateChronoCumBtn = targetEl.closest("[data-state-chrono-cum]");
+    if (stateChronoCumBtn) {
+      const cumulative = stateChronoCumBtn.dataset.stateChronoCum === "1";
+      if (state.chronoMode && cumulative !== state.chronoCumulative) {
+        state.chronoCumulative = cumulative;
+        showChronoView({ preserveScroll: true });
+        updateTrendChartUi();
+      }
+      return;
+    }
+
+    const historyModeBtn = targetEl.closest("[data-history-mode]");
+    if (historyModeBtn) {
+      const mode = String(historyModeBtn.dataset.historyMode || "");
+      if ((mode === "none" || mode === "onthisday" || mode === "final") && mode !== state.historyMode) {
+        state.historyMode = mode;
+        // The box now appears in all three panels; redraw whichever is showing.
+        if (state.selectedDistrictLayer) rerenderSelectedDistrictDetail();
+        else if (state.chronoMode) showChronoView({ preserveScroll: true });
+        else showStateChamberOverview({ preserveScroll: true }); // toggle sits above a long table
+        updateTrendChartUi();
+      }
+      return;
+    }
+
+    const detailChronoCumBtn = targetEl.closest("[data-detail-chrono-cum]");
+    if (detailChronoCumBtn) {
+      const cumulative = detailChronoCumBtn.dataset.detailChronoCum === "1";
+      if (cumulative !== state.detailChronoCumulative) {
+        state.detailChronoCumulative = cumulative;
+        rerenderSelectedDistrictDetail();
+      }
+      return;
+    }
+
     const detailChronoBtn = targetEl.closest("[data-detail-chrono]");
     if (detailChronoBtn) {
       const mode = String(detailChronoBtn.dataset.detailChrono || "");
-      if ((mode === "daily" || mode === "cumulative") && mode !== state.detailChronoMode) {
+      if (CHRONO_MODE_LABELS[mode] && mode !== state.detailChronoMode) {
         state.detailChronoMode = mode;
-        const layer = state.selectedDistrictLayer;
-        const feature = layer?.__featureRef;
-        if (feature) {
-          const joinInfo = extractJoinIds(feature.properties);
-          showDistrictDetailPanel(feature.properties, joinInfo, layer.__dataMapRef?.get(joinInfo.key));
-        }
+        rerenderSelectedDistrictDetail();
       }
       return;
     }
@@ -2101,6 +3747,8 @@ function buildDistrictNumberLayer(features) {
     const joinInfo = extractJoinIds(feature.properties);
     const districtNumber = displayDistrictId(joinInfo.rawDistrict, joinInfo.districtId);
     if (!districtNumber) continue;
+    // Filtered-out districts are dimmed; don't label them either.
+    if (!districtPassesActiveFilters(joinInfo.key)) continue;
     const bounds = geometryBounds(feature.geometry);
     if (!bounds.isValid()) continue;
     const marker = L.marker(bounds.getCenter(), {
