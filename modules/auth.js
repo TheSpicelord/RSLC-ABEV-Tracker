@@ -11,7 +11,7 @@ function injectOverlay() {
   overlay.id = "auth-overlay";
   overlay.innerHTML = `
     <div class="auth-card">
-      <h2 class="auth-title">Districts RSLC</h2>
+      <h2 class="auth-title">RSLC ABEV Tracker</h2>
       <p class="auth-subtitle">Enter the access password to continue.</p>
       <form id="auth-form" autocomplete="off">
         <input
