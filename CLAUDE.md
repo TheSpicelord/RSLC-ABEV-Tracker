@@ -137,4 +137,4 @@ Inside the Target Districts section, clicking the heading toggles the whole mode
 - National view: states colored by statewide net of the view's stat (no data = dimmed); sidebar table US totals row + per-state rows with all four stats (count + margin%), sortable, hover syncs map.
 - Click district → detail panel: the same three view cards as the statewide overview (`viewCardsHtml(rec)`, showing that district's totals and switching view on click), then Total/GOP/Dem/Swing/Margin per stat, AB return rate = returned/requested, EV share, stacked bar, then its own chrono section. Chrono/history toggles there redraw the panel with `preserveScroll` — they sit well below the fold.
 - Esc: close popup → deselect district → exit chrono → exit to national. Left Shift: toggle chamber. Ctrl+wheel: fine zoom.
-- Auth is OFF (`AUTH_ENABLED = false` in `modules/config.js`).
+- Auth is ON (`AUTH_ENABLED = true` in `modules/config.js`): password gate via the shared District Explorer Cloudflare Worker (`AUTH_WORKER_URL`). Bypassed automatically on `localhost`/`127.0.0.1`, so local dev is unaffected.

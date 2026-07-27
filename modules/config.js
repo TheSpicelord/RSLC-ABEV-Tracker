@@ -7,7 +7,7 @@ export const CTRL_FINE_ZOOM_SNAP = 0.2;
 
 // Password gate (same Cloudflare Worker as District Explorer).
 // Set to false to disable while developing / until a worker is configured for this site.
-export const AUTH_ENABLED = false;
+export const AUTH_ENABLED = true;
 export const AUTH_WORKER_URL = "https://districts.rslc.gop/auth";
 
 export const AUTO_SHAPE_URLS = {
