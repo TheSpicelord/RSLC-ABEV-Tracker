@@ -109,6 +109,7 @@ export const DEFAULT_ELECTION_DAY = "2026-11-03";
 export const ELECTION_DAY_OVERRIDES = {
   "51": "2026-04-21", // VA referendum (test data)
   "55": "2026-04-07", // WI Supreme Court (test data)
+  "26": "2026-08-04", // MI primary (temporary bolt-on — remove ~mid-Aug)
 };
 
 // First day of each state's ABEV window; chrono tables fold anything earlier
@@ -118,6 +119,7 @@ export const ABEV_START_OVERRIDES = {
   "55": "2026-03-17", // WI (test)
   "02": "2026-01-01", // AK — perm-AB signups, run all cycle
   "44": "2026-01-01", // RI — perm-AB signups, run all cycle
+  "26": "2026-06-25", // MI primary — AV ballots mailed ~40 days out (temporary)
 };
 
 export const STATE_NAME_TO_ABBR = {

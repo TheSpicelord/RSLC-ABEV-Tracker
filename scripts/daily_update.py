@@ -111,9 +111,29 @@ STATE_MODELS = {
         "join_col": "dt_regid",
         "bucket_sql": NATIONAL_BUCKET_SQL,
     },
+    # ---- TEMPORARY: Michigan Aug 4, 2026 PRIMARY bolt-on (remove ~mid-Aug) ----
+    # Michigan is pulled from a *different* source table (the primary feed) with
+    # an ElectionType filter, instead of the General_Absentees feed the other
+    # states use. Partisan lean comes from the statewide US Senate IE model,
+    # bucketed by its "Framework" column: Rogers (GOP) -> rep, Democrat -> dem,
+    # Persuasion + unmatched -> toss. To retire: delete this entry, drop "MI"
+    # from ACTIVE_STATES, and remove the MI overrides in modules/config.js.
+    "MI": {
+        "abev_table": "dbo.Primary_Absentees_2026",
+        "extra_where": "AND a.ElectionType = 'MI Primary Election'",
+        "model_table": "dbo.MI_SEN_IE_R1_Exchange_updated_20260507",
+        "join_col": "dt_regid",
+        "election_day": date(2026, 8, 4),
+        "bucket_sql": (
+            "CASE WHEN m.Framework = 'Rogers' THEN 'rep' "
+            "WHEN m.Framework = 'Democrat' THEN 'dem' "
+            "ELSE 'toss' END"  # 'Persuasion' and unmatched -> toss
+        ),
+    },
+    # ---- end temporary MI primary bolt-on ----
 }
 
-ACTIVE_STATES = ["VA", "WI", "AK", "RI"]
+ACTIVE_STATES = ["VA", "WI", "AK", "RI", "MI"]  # MI: temporary primary bolt-on
 
 ABBR_TO_FIPS = {
     "AL": "01", "AK": "02", "AZ": "04", "AR": "05", "CA": "06", "CO": "08",
@@ -173,7 +193,12 @@ def connect(cfg):
 
 
 def state_query(model):
-    """One aggregate query per state: counts by district pair, stat, bucket, event date."""
+    """One aggregate query per state: counts by district pair, stat, bucket, event date.
+
+    Source table and an optional extra WHERE filter are per-state (default: the
+    General feed, no filter). MI's temporary primary bolt-on overrides both."""
+    table = model.get("abev_table", ABEV_TABLE)
+    extra_where = model.get("extra_where", "")
     return f"""
 WITH scored AS (
     SELECT
@@ -183,10 +208,10 @@ WITH scored AS (
         a.ReturnDate,
         a.EarlyVoted,
         {model['bucket_sql']} AS bucket
-    FROM {ABEV_TABLE} a
+    FROM {table} a
     LEFT JOIN {model['model_table']} m
         ON m.{model['join_col']} = CONVERT(varchar(36), a.RNC_RegID)
-    WHERE a.State = ?
+    WHERE a.State = ? {extra_where}
 ),
 events AS (
     SELECT hd, sd, bucket, 'requested' AS stat, RequestDate AS event_date FROM scored WHERE RequestDate IS NOT NULL
