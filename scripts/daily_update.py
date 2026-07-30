@@ -97,15 +97,24 @@ STATE_MODELS = {
             "ELSE 'toss' END"  # 4-5 = swing; unmatched -> toss
         ),
     },
-    # AK and RI have no state exchange file and, so far, no returns or early
-    # votes — every row is a permanent-absentee list signup (RequestDate only).
-    # Both run a real Nov 3 general, so they take DEFAULT_ELECTION_DAY.
+    # AK and RI have no state exchange file. RI (below) still runs off the
+    # General feed of permanent-absentee signups; AK is temporarily repointed
+    # at its primary (see next).
+    # ---- TEMPORARY: Alaska Aug 18, 2026 PRIMARY bolt-on (remove ~mid-Aug) ----
+    # Same pattern as MI below, but with NO ElectionType filter (just State='AK')
+    # and the deep-root national model for lean. Pulled from the primary feed
+    # instead of the General feed; derive_senate stays in case the primary feed
+    # also lacks SenateDistrict. To retire: delete abev_table + election_day here
+    # (restoring the General-feed behavior) and the "02" overrides in config.js.
     "AK": {
+        "abev_table": "dbo.Primary_Absentees_2026",
+        "election_day": date(2026, 8, 18),
         "model_table": NATIONAL_MODEL_TABLE,
         "join_col": "dt_regid",
         "bucket_sql": NATIONAL_BUCKET_SQL,
         "derive_senate": alaska_senate_from_house,
     },
+    # ---- end temporary AK primary bolt-on ----
     "RI": {
         "model_table": NATIONAL_MODEL_TABLE,
         "join_col": "dt_regid",
