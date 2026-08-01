@@ -5,6 +5,13 @@ Morning routine (while connected to the VPN):
     python scripts/daily_update.py            # full update + git commit/push
     python scripts/daily_update.py --no-push  # update files only, no git
     python scripts/daily_update.py --dry-run  # test SQL connection + queries, write nothing
+    python scripts/daily_update.py --workers 8  # more parallel state queries
+    python scripts/daily_update.py --force    # re-pull every state, ignore the skip-unchanged cache
+
+States are pulled in parallel (one connection each, --workers controls how many
+at once). A cheap per-state fingerprint (row count + latest activity dates) is
+compared against the last run's cache, and unchanged states are reused from the
+existing JSON on disk instead of re-queried — --force overrides that.
 
 Configuration lives in scripts/db_config.ini (NOT committed — see
 scripts/db_config.template.ini). Requires: pip install pyodbc
@@ -33,12 +40,18 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from pathlib import Path
+from queue import Queue
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = PROJECT_ROOT / "scripts" / "db_config.ini"
 OUT_DIR = PROJECT_ROOT / "data" / "abev"
+# Per-state fingerprints from the last successful run (gitignored). Lets an
+# unchanged state be skipped instead of re-queried (#4). See state_watermark().
+WATERMARK_PATH = PROJECT_ROOT / "scripts" / ".abev_watermarks.json"
+DEFAULT_WORKERS = 4
 
 ABEV_TABLE = "dbo.General_Absentees_2026"
 STATS = ("requested", "returned", "ev")
@@ -391,6 +404,114 @@ def build_outputs(results, updated):
           f"{len(states_out)} states in national.json + timeline.json.")
 
 
+def pull_state_pooled(pool, abbr, today):
+    """Worker task (#1): borrow a connection from the pool, pull one state, and
+    return it plus how long it took. The pool caps concurrency at --workers."""
+    conn = pool.get()
+    t0 = time.monotonic()
+    try:
+        res = pull_state(conn, abbr, today)
+    finally:
+        pool.put(conn)
+    return abbr, res, time.monotonic() - t0
+
+
+# --- Skip-unchanged support (#4) --------------------------------------------
+
+
+def state_watermark(conn, abbr):
+    """A cheap fingerprint of one state's source rows: how many, and the latest
+    activity date of each kind. A single-table scan (no model join), so it's far
+    cheaper than the full aggregate. If this matches the last run, the state's
+    source data is unchanged and we can reuse the JSON already on disk."""
+    model = STATE_MODELS[abbr]
+    table = model.get("abev_table", ABEV_TABLE)
+    extra_where = model.get("extra_where", "")
+    cur = conn.cursor()
+    cur.execute(
+        f"SELECT COUNT_BIG(*), "
+        f"CONVERT(varchar(10), MAX(a.RequestDate), 23), "
+        f"CONVERT(varchar(10), MAX(a.ReturnDate), 23), "
+        f"CONVERT(varchar(10), MAX(a.EarlyVoted), 23) "
+        f"FROM {table} a WHERE a.State = ? {extra_where}",
+        abbr,
+    )
+    n, req, ret, ev = cur.fetchone()
+    return {"n": int(n or 0), "req": req, "ret": ret, "ev": ev}
+
+
+def load_watermarks():
+    if WATERMARK_PATH.exists():
+        try:
+            return json.loads(WATERMARK_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def save_watermarks(wm):
+    WATERMARK_PATH.write_text(json.dumps(wm, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _load_chamber_maps(abbr, chamber):
+    """Rebuild a chamber's (district-totals, district-timelines) maps from its
+    existing JSON, in the exact shape pull_state() produces."""
+    path = OUT_DIR / f"{abbr.lower()}_{chamber}.json"
+    dmap, tlmap = {}, {}
+    if not path.exists():
+        return dmap, tlmap
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for d in data.get("districts", []):
+        did = d.get("district_id")
+        if not did:
+            continue
+        dmap[did] = {stat: {b: int((d.get(stat) or {}).get(b, 0)) for b in BUCKETS} for stat in STATS}
+        tl = d.get("timeline") or {}
+        tlmap[did] = {}
+        for stat in STATS:
+            rebuilt = {}
+            for row in tl.get(stat, []):
+                rebuilt[row.get("date")] = {b: int(row.get(b, 0)) for b in BUCKETS}
+            tlmap[did][stat] = rebuilt
+    return dmap, tlmap
+
+
+def load_prior_result(abbr):
+    """Reconstruct a pull_state() result tuple for `abbr` from the JSON already on
+    disk, so an unchanged state stays in the rebuilt national/timeline outputs
+    without being re-queried. Returns None if anything needed is missing — the
+    caller then just pulls it fresh, so a skip can never silently drop a state."""
+    fips = ABBR_TO_FIPS[abbr]
+    nat_path, tl_path = OUT_DIR / "national.json", OUT_DIR / "timeline.json"
+    if not nat_path.exists() or not tl_path.exists():
+        return None
+    try:
+        national = json.loads(nat_path.read_text(encoding="utf-8"))
+        timeline_all = json.loads(tl_path.read_text(encoding="utf-8"))
+        nat_entry = next(
+            (s for s in national.get("states", []) if s.get("state_abbr") == abbr), None
+        )
+        if not nat_entry:
+            return None
+        statewide = {
+            stat: {b: int((nat_entry.get(stat) or {}).get(b, 0)) for b in BUCKETS} for stat in STATS
+        }
+        tl_state = (timeline_all.get("states") or {}).get(fips, {})
+        timeline = {}
+        for stat in STATS:
+            rebuilt = {}
+            for row in tl_state.get(stat, []):
+                rebuilt[row.get("date")] = {b: int(row.get(b, 0)) for b in BUCKETS}
+            timeline[stat] = rebuilt
+        house, house_tl = _load_chamber_maps(abbr, "house")
+        senate, senate_tl = _load_chamber_maps(abbr, "senate")
+        if not house and not senate:
+            return None
+        return house, senate, statewide, timeline, house_tl, senate_tl
+    except Exception:
+        return None
+
+
 def git_publish(updated):
     def run(*args):
         result = subprocess.run(["git", *args], cwd=PROJECT_ROOT, capture_output=True, text=True)
@@ -420,6 +541,10 @@ def main():
     parser = argparse.ArgumentParser(description="Daily ABEV data update")
     parser.add_argument("--no-push", action="store_true", help="update files but skip git commit/push")
     parser.add_argument("--dry-run", action="store_true", help="connect and run queries, write nothing")
+    parser.add_argument("--force", action="store_true",
+                        help="re-pull every state, ignoring the skip-unchanged cache")
+    parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS,
+                        help="max states queried in parallel (default: %(default)s)")
     parser.add_argument("--states", default=",".join(ACTIVE_STATES),
                         help="comma-separated state abbrs to pull (default: %(default)s)")
     args = parser.parse_args()
@@ -432,37 +557,81 @@ def main():
     today = date.today()
     updated = today.isoformat()
     cfg = load_config()
-    conn = connect(cfg)
-    total = len(states)
-    print(f"Pulling {total} state{'s' if total != 1 else ''}: {', '.join(states)}")
+
+    # A dry run is meant to exercise the queries, so it never skips and never
+    # writes the watermark cache.
+    skip_enabled = not (args.force or args.dry_run)
+
+    # Phase 1: one cheap fingerprint query per state (serial, single connection).
+    # Unchanged states are reused from disk; the rest go on the pull list.
+    prior_wm = load_watermarks() if skip_enabled else {}
+    fresh_wm = {}
     results = {}
-    run_start = time.monotonic()
+    to_pull = []
+    probe = connect(cfg)
+    probe.timeout = 0
     try:
-        for i, abbr in enumerate(states, 1):
-            print(f"---- [{i}/{total}] {abbr} starting ----")
-            t0 = time.monotonic()
-            results[abbr] = pull_state(conn, abbr, today)
-            state_secs = time.monotonic() - t0
-            elapsed = time.monotonic() - run_start
-            done, left = i, total - i
-            # ETA is a rough running average — national-model states (AK/RI/MI)
-            # take far longer than exchange-file states, so early estimates skew.
-            eta = (elapsed / done) * left if left else 0
-            eta_txt = f", ~{fmt_dur(eta)} left for {left} more" if left else ", last one done"
-            print(f"---- [{i}/{total}] {abbr} finished in {fmt_dur(state_secs)} "
-                  f"(elapsed {fmt_dur(elapsed)}{eta_txt}) ----")
+        for abbr in states:
+            wm = state_watermark(probe, abbr)
+            fresh_wm[abbr] = wm
+            if skip_enabled and prior_wm.get(abbr) == wm:
+                prior = load_prior_result(abbr)
+                if prior is not None:
+                    results[abbr] = prior
+                    print(f"[skip] {abbr} unchanged since last run — reusing on-disk data.")
+                    continue
+            to_pull.append(abbr)
     finally:
-        conn.close()
-    print(f"All {total} states pulled in {fmt_dur(time.monotonic() - run_start)}.")
+        probe.close()
+
+    # Phase 2: pull the changed states in parallel, capped at --workers.
+    total = len(states)
+    print(f"{len(results)} unchanged, pulling {len(to_pull)}"
+          f"{f' with {min(args.workers, len(to_pull))} workers' if to_pull else ''}"
+          f"{': ' + ', '.join(to_pull) if to_pull else ''}")
+    run_start = time.monotonic()
+    if to_pull:
+        n_workers = max(1, min(args.workers, len(to_pull)))
+        pool = Queue()
+        conns = [connect(cfg) for _ in range(n_workers)]
+        for c in conns:
+            c.timeout = 0
+            pool.put(c)
+        try:
+            with ThreadPoolExecutor(max_workers=n_workers) as ex:
+                futures = [ex.submit(pull_state_pooled, pool, abbr, today) for abbr in to_pull]
+                done = 0
+                for fut in as_completed(futures):
+                    abbr, res, secs = fut.result()
+                    results[abbr] = res
+                    done += 1
+                    left = len(to_pull) - done
+                    elapsed = time.monotonic() - run_start
+                    # Wall-clock average already reflects the parallelism, so this
+                    # ETA holds for both serial and parallel runs.
+                    eta = (elapsed / done) * left if left else 0
+                    eta_txt = f", ~{fmt_dur(eta)} left for {left} more" if left else ""
+                    print(f"---- [{done}/{len(to_pull)}] {abbr} finished in {fmt_dur(secs)} "
+                          f"(elapsed {fmt_dur(elapsed)}{eta_txt}) ----")
+        finally:
+            for c in conns:
+                c.close()
+        print(f"Pulled {len(to_pull)} state(s) in {fmt_dur(time.monotonic() - run_start)}.")
 
     if args.dry_run:
-        for abbr, (house, senate, statewide, *_rest) in results.items():
+        for abbr in states:
+            house, senate, statewide, *_rest = results[abbr]
             print(f"[{abbr}] house districts: {len(house)}, senate districts: {len(senate)}, "
                   f"statewide requested: {sum(statewide['requested'].values()):,}")
         print("Dry run complete — no files written.")
         return
 
     build_outputs(results, updated)
+    # On-disk JSON now matches these fingerprints, so record them for next run.
+    # Merge so a partial --states run doesn't wipe other states' cached prints.
+    merged_wm = load_watermarks()
+    merged_wm.update(fresh_wm)
+    save_watermarks(merged_wm)
 
     if args.no_push:
         print("Skipping git publish (--no-push).")

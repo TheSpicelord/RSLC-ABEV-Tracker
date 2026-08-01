@@ -1,6 +1,9 @@
 # Credentials — never commit
 scripts/db_config.ini
 
+# Per-run skip-unchanged fingerprint cache (local optimization, not shared)
+scripts/.abev_watermarks.json
+
 # Python
 __pycache__/
 *.pyc
