@@ -114,19 +114,30 @@ add("West Virginia",  db(6),  db(46), da(6), "Postmarked by 11/3; counted if rec
 add("Wisconsin",      db(5),  db(47), EDAY, "", db(14), wb(SUN), "Municipal; 10/20 is the earliest allowed — clerks may set a shorter window (later start).")
 add("Wyoming",        db(1),  db(28), EDAY, "", db(28), db(1), "")
 
+def iso(d):
+    return d.isoformat() if isinstance(d, date) else None
+
 def build():
     out = {}
     for st, r in S.items():
         abbr, fips = FIPS[st]
-        req = AM if r["req"] == AM else md(r["req"])
-        ret = f"{md(r['out'])} → {md(r['due'])}"
+        all_mail = r["req"] == AM
+        req = AM if all_mail else md(r["req"])
+        # Dash (not arrow) between the two dates, matching the EV column.
+        ret = f"{md(r['out'])} – {md(r['due'])}"
         ret_tip = "; ".join(x for x in (r["pm"], r["out_note"]) if x)
-        if r["evs"] == NONE:
-            ev, ev_tip = "None", r["ev_tip"]
-        else:
-            ev, ev_tip = f"{md(r['evs'])} – {md(r['eve'])}", r["ev_tip"]
-        out[fips] = {"abbr": abbr, "request": req, "requestTip": r["req_tip"],
-                     "ret": ret, "retTip": ret_tip, "ev": ev, "evTip": ev_tip}
+        no_ev = r["evs"] == NONE
+        ev = "None" if no_ev else f"{md(r['evs'])} – {md(r['eve'])}"
+        out[fips] = {
+            "abbr": abbr,
+            "request": req, "requestTip": r["req_tip"],
+            "reqEnd": None if all_mail else iso(r["req"]),   # window is [now .. deadline]
+            "ret": ret, "retTip": ret_tip,
+            "retStart": iso(r["out"]), "retEnd": iso(r["due"]),
+            "ev": ev, "evTip": r["ev_tip"],
+            "evStart": None if no_ev else iso(r["evs"]),
+            "evEnd": None if no_ev else iso(r["eve"]),
+        }
     return out
 
 def emit(data):

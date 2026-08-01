@@ -3345,12 +3345,21 @@ html.auth-pending main {
   margin: 0 0 0.45rem;
   text-align: center;
 }
+/* Drop the horizontal-scroll wrapper so the sticky <th> pins to the sidebar
+   (the scroll container) instead of this never-scrolling box. */
+.national-overview-wrap.sched-wrap {
+  overflow: visible;
+}
 .abev-table.sched-table td.sched-cell {
   white-space: nowrap;
   padding-right: 0.7rem;
 }
 .sched-table .sched-text {
   font-variant-numeric: tabular-nums;
+}
+/* Windows we're not currently inside (and "None" early voting) read dimmer. */
+.sched-cell.sched-faded {
+  opacity: 0.45;
 }
 .sched-info {
   margin-left: 0.15rem;
@@ -3361,4 +3370,21 @@ html.auth-pending main {
 }
 .sched-info:hover {
   opacity: 1;
+}
+.sched-tooltip {
+  position: fixed;
+  z-index: 1000;
+  max-width: 260px;
+  padding: 0.4rem 0.55rem;
+  background: #0b0f14;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.76rem;
+  line-height: 1.32;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+.sched-tooltip[hidden] {
+  display: none;
 }

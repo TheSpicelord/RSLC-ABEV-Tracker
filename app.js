@@ -51,7 +51,7 @@ if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260801b";
+const BUILD_VERSION = "20260801c";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -1532,6 +1532,7 @@ function enterNationalView() {
 }
 
 function renderNationalOverview() {
+  hideSchedTooltip();
   state.detailsRenderToken += 1;
   const renderToken = state.detailsRenderToken;
   detailsTitle.textContent = "National Overview";
@@ -2070,14 +2071,28 @@ function nationalOverviewHtml() {
   return `${nationalTabToggleHtml()}${body}`;
 }
 
-// A cell in the Schedule table: the window text plus an optional circled-i whose
-// native title carries the edge-case tooltip (reliable inside the scrolling
-// sidebar, unlike a CSS-positioned bubble).
+// A cell in the Schedule table: the window text plus an optional circled-i. The
+// tooltip text rides in data-tip (not the native title) so we can pop a custom
+// bubble with a short delay; see the sched-tooltip handlers below.
 function schedCellHtml(text, tip) {
   const info = tip
-    ? ` <span class="sched-info" title="${escapeHtml(tip)}" role="img" aria-label="${escapeHtml(tip)}">&#9432;</span>`
+    ? ` <span class="sched-info" data-tip="${escapeHtml(tip)}" role="img" aria-label="${escapeHtml(tip)}" tabindex="0">&#9432;</span>`
     : "";
   return `<span class="sched-text">${escapeHtml(text)}</span>${info}`;
+}
+
+function isoToday() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// True when `today` falls inside [startIso, endIso]; a null bound is open. A
+// request deadline is [now .. deadline], so it passes startIso = null.
+function schedWindowActive(startIso, endIso, today) {
+  if (startIso && today < startIso) return false;
+  if (endIso && today > endIso) return false;
+  return true;
 }
 
 function nationalScheduleHtml() {
@@ -2093,20 +2108,30 @@ function nationalScheduleHtml() {
   }
   rows.sort((a, b) => a.name.localeCompare(b.name));
 
+  const today = isoToday();
+  // A cell dims when we're outside its window: All-mail request never dims;
+  // a "None" early-voting cell always does.
+  const cell = (text, tip, faded) =>
+    `<td class="sched-cell${faded ? " sched-faded" : ""}">${schedCellHtml(text, tip)}</td>`;
+
   const body = rows
-    .map(
-      (r) => `
+    .map((r) => {
+      const s = r.sched;
+      const reqFade = s.request !== "All-mail" && !schedWindowActive(null, s.reqEnd, today);
+      const retFade = !schedWindowActive(s.retStart, s.retEnd, today);
+      const evFade = s.ev === "None" || !schedWindowActive(s.evStart, s.evEnd, today);
+      return `
         <tr class="target-row state-select-row" data-state-key="${escapeHtml(r.stateKey)}">
           <td class="abev-name-cell">${escapeHtml(r.name)}</td>
-          <td class="sched-cell">${schedCellHtml(r.sched.request, r.sched.requestTip)}</td>
-          <td class="sched-cell">${schedCellHtml(r.sched.ret, r.sched.retTip)}</td>
-          <td class="sched-cell">${schedCellHtml(r.sched.ev, r.sched.evTip)}</td>
-        </tr>`
-    )
+          ${cell(s.request, s.requestTip, reqFade)}
+          ${cell(s.ret, s.retTip, retFade)}
+          ${cell(s.ev, s.evTip, evFade)}
+        </tr>`;
+    })
     .join("");
 
   return `
-    <div class="national-overview-wrap">
+    <div class="national-overview-wrap sched-wrap">
       <div class="sched-caption">${escapeHtml(ABEV_SCHEDULE_LABEL)}</div>
       <table class="abev-table sched-table">
         <thead>
@@ -2121,6 +2146,42 @@ function nationalScheduleHtml() {
       </table>
     </div>
   `;
+}
+
+// --- Schedule tooltip: a body-level fixed bubble with a short hover delay
+// (native title is too slow, and a sidebar-nested CSS bubble would be clipped).
+let schedTipEl = null;
+let schedTipTimer = null;
+function schedTooltipEl() {
+  if (!schedTipEl) {
+    schedTipEl = document.createElement("div");
+    schedTipEl.className = "sched-tooltip";
+    schedTipEl.hidden = true;
+    document.body.appendChild(schedTipEl);
+  }
+  return schedTipEl;
+}
+function showSchedTooltip(icon) {
+  const tip = icon.getAttribute("data-tip");
+  if (!tip) return;
+  const el = schedTooltipEl();
+  el.textContent = tip;
+  el.hidden = false;
+  const r = icon.getBoundingClientRect();
+  const m = 8;
+  let left = r.left + r.width / 2 - el.offsetWidth / 2;
+  left = Math.max(m, Math.min(left, window.innerWidth - el.offsetWidth - m));
+  let top = r.top - el.offsetHeight - 8;
+  if (top < m) top = r.bottom + 8; // flip below when there's no room above
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
+}
+function hideSchedTooltip() {
+  if (schedTipTimer) {
+    clearTimeout(schedTipTimer);
+    schedTipTimer = null;
+  }
+  if (schedTipEl) schedTipEl.hidden = true;
 }
 
 function nationalStatTableHtml() {
@@ -3643,6 +3704,20 @@ function popupHtml(properties, joinInfo, rec) {
 function wireDetailsInteractions() {
   if (state.detailsInteractionsWired) return;
   state.detailsInteractionsWired = true;
+
+  // Schedule ⓘ tooltip: short-delay show on hover, hide on leave/scroll.
+  details.addEventListener("mouseover", (event) => {
+    const icon = event.target instanceof Element ? event.target.closest(".sched-info") : null;
+    if (!icon) return;
+    if (schedTipTimer) clearTimeout(schedTipTimer);
+    schedTipTimer = setTimeout(() => showSchedTooltip(icon), 130);
+  });
+  details.addEventListener("mouseout", (event) => {
+    const icon = event.target instanceof Element ? event.target.closest(".sched-info") : null;
+    if (icon) hideSchedTooltip();
+  });
+  const sidebarEl = details.closest(".sidebar");
+  if (sidebarEl) sidebarEl.addEventListener("scroll", hideSchedTooltip, { passive: true });
 
   details.addEventListener("mouseover", (event) => {
     const targetEl = event.target instanceof Element ? event.target : null;
