@@ -45,12 +45,13 @@ import {
   upIn2026Toggle,
 } from "./modules/dom.js";
 import { state } from "./modules/state.js";
+import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js";
 
 if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260731a";
+const BUILD_VERSION = "20260801a";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -2056,7 +2057,73 @@ function selectDistrictFromTableRow(joinKey) {
 // Sidebar: national overview
 // ---------------------------------------------------------------------------
 
+// Two-button switch atop the national sidebar: the stat Overview vs the
+// static ABEV Schedule (request / return / early-vote windows).
+function nationalTabToggleHtml() {
+  const btn = (value, label) =>
+    `<button type="button" class="detail-chrono-btn${state.nationalTab === value ? " active-chrono" : ""}" data-national-tab="${value}">${label}</button>`;
+  return `<div class="detail-chrono-buttons national-tab-buttons">${btn("overview", "Overview")}${btn("schedule", "Schedule")}</div>`;
+}
+
 function nationalOverviewHtml() {
+  const body = state.nationalTab === "schedule" ? nationalScheduleHtml() : nationalStatTableHtml();
+  return `${nationalTabToggleHtml()}${body}`;
+}
+
+// A cell in the Schedule table: the window text plus an optional circled-i whose
+// native title carries the edge-case tooltip (reliable inside the scrolling
+// sidebar, unlike a CSS-positioned bubble).
+function schedCellHtml(text, tip) {
+  const info = tip
+    ? ` <span class="sched-info" title="${escapeHtml(tip)}" role="img" aria-label="${escapeHtml(tip)}">&#9432;</span>`
+    : "";
+  return `<span class="sched-text">${escapeHtml(text)}</span>${info}`;
+}
+
+function nationalScheduleHtml() {
+  const rows = [];
+  const seen = new Set();
+  for (const { meta } of state.statesByKey.values()) {
+    if (!meta?.key || seen.has(meta.key)) continue;
+    const fips = normalizeStateFips(meta.fips);
+    const sched = fips ? ABEV_SCHEDULE[fips] : null;
+    if (!sched) continue;
+    seen.add(meta.key);
+    rows.push({ name: meta.name || meta.abbr || meta.key, sched });
+  }
+  rows.sort((a, b) => a.name.localeCompare(b.name));
+
+  const body = rows
+    .map(
+      (r) => `
+        <tr>
+          <td class="abev-name-cell">${escapeHtml(r.name)}</td>
+          <td class="sched-cell">${schedCellHtml(r.sched.request, r.sched.requestTip)}</td>
+          <td class="sched-cell">${schedCellHtml(r.sched.ret, r.sched.retTip)}</td>
+          <td class="sched-cell">${schedCellHtml(r.sched.ev, r.sched.evTip)}</td>
+        </tr>`
+    )
+    .join("");
+
+  return `
+    <div class="national-overview-wrap">
+      <div class="sched-caption">${escapeHtml(ABEV_SCHEDULE_LABEL)}</div>
+      <table class="abev-table sched-table">
+        <thead>
+          <tr>
+            <th>State</th>
+            <th>AB Request by</th>
+            <th>AB Return</th>
+            <th>Early Voting</th>
+          </tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function nationalStatTableHtml() {
   const rows = nationalOverviewRows();
   if (!rows.length) {
     return '<div class="loading-indicator">No ABEV data loaded yet.</div>';
@@ -3630,6 +3697,16 @@ function wireDetailsInteractions() {
     const viewCard = targetEl.closest(".stat-card[data-view]");
     if (viewCard) {
       setAbevView(String(viewCard.dataset.view || ""));
+      return;
+    }
+
+    const natTabBtn = targetEl.closest("[data-national-tab]");
+    if (natTabBtn) {
+      const tab = String(natTabBtn.dataset.nationalTab || "");
+      if ((tab === "overview" || tab === "schedule") && tab !== state.nationalTab) {
+        state.nationalTab = tab;
+        renderNationalOverview();
+      }
       return;
     }
 

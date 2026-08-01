@@ -3334,3 +3334,31 @@ html.auth-pending main {
 .trend-tt-d { color: #8ab6ff; }
 .trend-tt-t { color: #c795d8; }
 .trend-tt-m { color: #9ba9b9; }
+
+/* --- National ABEV Schedule tab --- */
+.national-tab-buttons {
+  margin-bottom: 0.5rem;
+}
+.sched-caption {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin: 0 0 0.45rem;
+  text-align: center;
+}
+.abev-table.sched-table td.sched-cell {
+  white-space: nowrap;
+  padding-right: 0.7rem;
+}
+.sched-table .sched-text {
+  font-variant-numeric: tabular-nums;
+}
+.sched-info {
+  margin-left: 0.15rem;
+  color: var(--accent);
+  cursor: help;
+  font-style: normal;
+  opacity: 0.85;
+}
+.sched-info:hover {
+  opacity: 1;
+}

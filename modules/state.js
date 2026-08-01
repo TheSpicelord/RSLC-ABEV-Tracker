@@ -2,6 +2,8 @@ export const state = {
   mode: "national",
   chamber: "house",
   abevView: "abev",
+  // National sidebar tab: "overview" (stat table) | "schedule" (ABEV windows).
+  nationalTab: "overview",
   // Chrono granularity ("daily" | "weekly"; null statewide = plain district
   // table). Day-to-day vs running totals is a separate A/B beneath it.
   chronoMode: null,
