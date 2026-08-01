@@ -50,7 +50,7 @@ if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260730b";
+const BUILD_VERSION = "20260731a";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -687,7 +687,9 @@ function legMarginCellsHtml(joinKey, columns, { frame = false } = {}) {
       let extra = " leg-margin-cell";
       if (frame) {
         if (idx === 0) extra += " abev-vline-left";
-        if (idx === columns.length - 1) extra += " abev-vline-right";
+        // Right border on every leg column: the last one frames the group,
+        // the others divide the leg years (e.g. 2022 | 2024).
+        extra += " abev-vline-right";
       }
       if (!col.available) {
         return `<td class="margin-cell margin-cell-na${extra}" title="Districts redrawn after this election">N/A</td>`;
@@ -704,7 +706,9 @@ function legMarginHeadCellsHtml(columns, { sortable = true, frame = false } = {}
       let extra = " leg-margin-head";
       if (frame) {
         if (idx === 0) extra += " abev-vline-left";
-        if (idx === columns.length - 1) extra += " abev-vline-right";
+        // Right border on every leg column: the last one frames the group,
+        // the others divide the leg years (e.g. 2022 | 2024).
+        extra += " abev-vline-right";
       }
       if (!sortable) return `<th class="${extra.trim()}">${label}</th>`;
       return `<th class="abev-sortable${extra}" data-sort-scope="district" data-sort-key="leg_${col.year}">${label}${sortIndicator(state.districtSort, `leg_${col.year}`)}</th>`;
@@ -795,7 +799,7 @@ function toggleTargetFilterControl(section, tier = null) {
 
   if (!state.targetDistrictsMode) {
     setExclusiveTargetFilter(section, tier);
-    setTargetDistrictsMode(true, { preserveFilters: true });
+    setTargetDistrictsMode(true, { preserveFilters: true, preserveScroll: true });
     return;
   }
 
@@ -819,10 +823,10 @@ function toggleTargetFilterControl(section, tier = null) {
   }
 
   if (!anyTargetFiltersActive()) {
-    setTargetDistrictsMode(false, { preserveFilters: true });
+    setTargetDistrictsMode(false, { preserveFilters: true, preserveScroll: true });
     return;
   }
-  applyDistrictFilters();
+  applyDistrictFilters({ preserveScroll: true });
 }
 
 // --- Filter application ------------------------------------------------------
@@ -880,7 +884,7 @@ function applyDistrictFilters(options = {}) {
     scheduleDistrictNumberLayerBuild(state.currentDistrictFeatures || []);
   }
   if (state.mode === "state" && !state.selectedDistrictLayer && !options.skipSidebar) {
-    showActiveStateSidebar();
+    showActiveStateSidebar({ preserveScroll: options.preserveScroll });
   }
 }
 
@@ -888,7 +892,7 @@ function setTargetDistrictsMode(enabled, options = {}) {
   state.targetDistrictsMode = !!enabled;
   ensureTargetFilters();
   if (state.targetDistrictsMode && !options.preserveFilters) resetTargetFilters();
-  applyDistrictFilters();
+  applyDistrictFilters({ preserveScroll: options.preserveScroll });
 }
 
 function setUpIn2026Mode(enabled) {
@@ -1164,11 +1168,12 @@ function wireEvents() {
   });
 }
 
-function showActiveStateSidebar() {
+function showActiveStateSidebar(options = {}) {
+  const passthrough = { preserveScroll: options.preserveScroll };
   if (state.chronoMode) {
-    showChronoView();
+    showChronoView(passthrough);
   } else {
-    showStateChamberOverview();
+    showStateChamberOverview(passthrough);
   }
   updateTrendChartUi();
 }
@@ -3631,7 +3636,7 @@ function wireDetailsInteractions() {
     // "Target Districts" heading toggles the whole mode; section headers and
     // tier cells narrow it.
     if (targetEl.closest("#targetModeHeader")) {
-      setTargetDistrictsMode(!state.targetDistrictsMode);
+      setTargetDistrictsMode(!state.targetDistrictsMode, { preserveScroll: true });
       return;
     }
 

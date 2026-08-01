@@ -31,6 +31,7 @@ import configparser
 import json
 import subprocess
 import sys
+import time
 from collections import defaultdict
 from datetime import date
 from pathlib import Path
@@ -172,6 +173,14 @@ ABBR_TO_NAME = {
     "TX": "Texas", "UT": "Utah", "VT": "Vermont", "WA": "Washington",
     "WV": "West Virginia", "WY": "Wyoming",
 }
+
+
+def fmt_dur(seconds):
+    """Human-friendly elapsed time: '42s' or '3m12s'."""
+    seconds = int(round(seconds))
+    if seconds < 60:
+        return f"{seconds}s"
+    return f"{seconds // 60}m{seconds % 60:02d}s"
 
 
 def load_config():
@@ -400,6 +409,14 @@ def git_publish(updated):
 
 
 def main():
+    # Stream progress line-by-line even when stdout is redirected to a file or a
+    # background pipe (otherwise Python block-buffers and nothing shows until the
+    # very end — the whole point of the progress readout is live updates).
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+
     parser = argparse.ArgumentParser(description="Daily ABEV data update")
     parser.add_argument("--no-push", action="store_true", help="update files but skip git commit/push")
     parser.add_argument("--dry-run", action="store_true", help="connect and run queries, write nothing")
@@ -416,10 +433,27 @@ def main():
     updated = today.isoformat()
     cfg = load_config()
     conn = connect(cfg)
+    total = len(states)
+    print(f"Pulling {total} state{'s' if total != 1 else ''}: {', '.join(states)}")
+    results = {}
+    run_start = time.monotonic()
     try:
-        results = {abbr: pull_state(conn, abbr, today) for abbr in states}
+        for i, abbr in enumerate(states, 1):
+            print(f"---- [{i}/{total}] {abbr} starting ----")
+            t0 = time.monotonic()
+            results[abbr] = pull_state(conn, abbr, today)
+            state_secs = time.monotonic() - t0
+            elapsed = time.monotonic() - run_start
+            done, left = i, total - i
+            # ETA is a rough running average — national-model states (AK/RI/MI)
+            # take far longer than exchange-file states, so early estimates skew.
+            eta = (elapsed / done) * left if left else 0
+            eta_txt = f", ~{fmt_dur(eta)} left for {left} more" if left else ", last one done"
+            print(f"---- [{i}/{total}] {abbr} finished in {fmt_dur(state_secs)} "
+                  f"(elapsed {fmt_dur(elapsed)}{eta_txt}) ----")
     finally:
         conn.close()
+    print(f"All {total} states pulled in {fmt_dur(time.monotonic() - run_start)}.")
 
     if args.dry_run:
         for abbr, (house, senate, statewide, *_rest) in results.items():
