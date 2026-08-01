@@ -51,7 +51,7 @@ if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260801a";
+const BUILD_VERSION = "20260801b";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -2089,14 +2089,14 @@ function nationalScheduleHtml() {
     const sched = fips ? ABEV_SCHEDULE[fips] : null;
     if (!sched) continue;
     seen.add(meta.key);
-    rows.push({ name: meta.name || meta.abbr || meta.key, sched });
+    rows.push({ name: meta.name || meta.abbr || meta.key, stateKey: meta.key, sched });
   }
   rows.sort((a, b) => a.name.localeCompare(b.name));
 
   const body = rows
     .map(
       (r) => `
-        <tr>
+        <tr class="target-row state-select-row" data-state-key="${escapeHtml(r.stateKey)}">
           <td class="abev-name-cell">${escapeHtml(r.name)}</td>
           <td class="sched-cell">${schedCellHtml(r.sched.request, r.sched.requestTip)}</td>
           <td class="sched-cell">${schedCellHtml(r.sched.ret, r.sched.retTip)}</td>
