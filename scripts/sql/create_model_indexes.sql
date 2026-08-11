@@ -39,14 +39,6 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
     ON dbo.RGA_WI_ExchangeData_20260131 (dt_regid)
     INCLUDE (universenumber);
 
--- Michigan US Senate IE model (temporary primary bolt-on)
-IF NOT EXISTS (SELECT 1 FROM sys.indexes
-               WHERE name = 'IX_dtregid_MI'
-                 AND object_id = OBJECT_ID('dbo.MI_SEN_IE_R1_Exchange_updated_20260507'))
-    CREATE NONCLUSTERED INDEX IX_dtregid_MI
-    ON dbo.MI_SEN_IE_R1_Exchange_updated_20260507 (dt_regid)
-    INCLUDE (Framework);
-
 -- Pennsylvania exchange model
 IF NOT EXISTS (SELECT 1 FROM sys.indexes
                WHERE name = 'IX_dtregid_PA'

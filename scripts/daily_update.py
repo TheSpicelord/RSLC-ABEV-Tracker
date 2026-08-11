@@ -148,32 +148,14 @@ STATE_MODELS = {
             "ELSE 'toss' END"  # 3-5 (persuasion/swing) and unmatched -> toss
         ),
     },
-    # ---- TEMPORARY: Michigan Aug 4, 2026 PRIMARY bolt-on (remove ~mid-Aug) ----
-    # Michigan is pulled from a *different* source table (the primary feed) with
-    # an ElectionType filter, instead of the General_Absentees feed the other
-    # states use. Partisan lean comes from the statewide US Senate IE model,
-    # bucketed by its "Framework" column: Rogers (GOP) -> rep, Democrat -> dem,
-    # Persuasion + unmatched -> toss. To retire: delete this entry, drop "MI"
-    # from ACTIVE_STATES, and remove the MI overrides in modules/config.js.
-    "MI": {
-        "abev_table": "dbo.Primary_Absentees_2026",
-        "extra_where": "AND a.ElectionType = 'MI Primary Election'",
-        "model_table": "dbo.MI_SEN_IE_R1_Exchange_updated_20260507",
-        "join_col": "dt_regid",
-        "election_day": date(2026, 8, 4),
-        "bucket_sql": (
-            "CASE WHEN m.Framework = 'Rogers' THEN 'rep' "
-            "WHEN m.Framework = 'Democrat' THEN 'dem' "
-            "ELSE 'toss' END"  # 'Persuasion' and unmatched -> toss
-        ),
-    },
-    # ---- end temporary MI primary bolt-on ----
 }
 
-ACTIVE_STATES = ["VA", "WI", "AK", "RI", "MI"]  # MI: temporary primary bolt-on
+ACTIVE_STATES = ["VA", "WI", "AK", "RI"]
 # PA is wired in STATE_MODELS + indexed and ready, but held out of ACTIVE_STATES
 # until its 2026 general data returns to dbo.General_Absentees_2026 (the vendor
 # feed dropped it after briefly loading ~526k rows). Add "PA" here to activate.
+# (The Michigan Aug 4 primary bolt-on was removed after that election; its model
+# will be refreshed as a new table for the general.)
 
 ABBR_TO_FIPS = {
     "AL": "01", "AK": "02", "AZ": "04", "AR": "05", "CA": "06", "CO": "08",
