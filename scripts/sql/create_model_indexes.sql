@@ -46,3 +46,11 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
     CREATE NONCLUSTERED INDEX IX_dtregid_MI
     ON dbo.MI_SEN_IE_R1_Exchange_updated_20260507 (dt_regid)
     INCLUDE (Framework);
+
+-- Pennsylvania exchange model
+IF NOT EXISTS (SELECT 1 FROM sys.indexes
+               WHERE name = 'IX_dtregid_PA'
+                 AND object_id = OBJECT_ID('dbo.PA_RSLC_R1_Exchange_20260418'))
+    CREATE NONCLUSTERED INDEX IX_dtregid_PA
+    ON dbo.PA_RSLC_R1_Exchange_20260418 (dt_regid)
+    INCLUDE (UniverseNumber);

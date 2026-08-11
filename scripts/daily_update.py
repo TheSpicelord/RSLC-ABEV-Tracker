@@ -134,6 +134,20 @@ STATE_MODELS = {
         "join_col": "dt_regid",
         "bucket_sql": NATIONAL_BUCKET_SQL,
     },
+    # Pennsylvania: real Nov 3 general (default election day), pulled from the
+    # General feed. State exchange model buckets by UniverseNumber 1-7:
+    # 1-2 (Rep Base / Rep Bring Home) -> rep, 6-7 (Dems Going Home / Dem Base)
+    # -> dem, 3-5 (Prime Persuasion / Stubborn Middle / Dem Peel) + unmatched
+    # -> toss.
+    "PA": {
+        "model_table": "dbo.PA_RSLC_R1_Exchange_20260418",
+        "join_col": "dt_regid",
+        "bucket_sql": (
+            "CASE WHEN m.UniverseNumber IN (1, 2) THEN 'rep' "
+            "WHEN m.UniverseNumber IN (6, 7) THEN 'dem' "
+            "ELSE 'toss' END"  # 3-5 (persuasion/swing) and unmatched -> toss
+        ),
+    },
     # ---- TEMPORARY: Michigan Aug 4, 2026 PRIMARY bolt-on (remove ~mid-Aug) ----
     # Michigan is pulled from a *different* source table (the primary feed) with
     # an ElectionType filter, instead of the General_Absentees feed the other
@@ -157,6 +171,9 @@ STATE_MODELS = {
 }
 
 ACTIVE_STATES = ["VA", "WI", "AK", "RI", "MI"]  # MI: temporary primary bolt-on
+# PA is wired in STATE_MODELS + indexed and ready, but held out of ACTIVE_STATES
+# until its 2026 general data returns to dbo.General_Absentees_2026 (the vendor
+# feed dropped it after briefly loading ~526k rows). Add "PA" here to activate.
 
 ABBR_TO_FIPS = {
     "AL": "01", "AK": "02", "AZ": "04", "AR": "05", "CA": "06", "CO": "08",

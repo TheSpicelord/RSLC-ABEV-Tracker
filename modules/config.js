@@ -121,6 +121,7 @@ export const ABEV_START_OVERRIDES = {
   "02": "2026-08-01", // AK primary window (TEMPORARY; restore "2026-01-01" perm-AB on revert)
   "44": "2026-01-01", // RI — perm-AB signups, run all cycle
   "26": "2026-06-25", // MI primary — AV ballots mailed ~40 days out (temporary)
+  "42": "2026-01-01", // PA — annual mail-in list, requests run all cycle
 };
 
 export const STATE_NAME_TO_ABBR = {
