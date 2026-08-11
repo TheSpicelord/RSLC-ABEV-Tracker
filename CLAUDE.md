@@ -6,7 +6,7 @@ Interactive map/table tracker of Absentee (AB) and Early Vote (EV) activity for 
 
 - **No build step** — pure ES6 modules, serve from any static host
 - Local dev: serve from the **parent** `Coding Projects` folder (`python -m http.server 8000`), then open `http://localhost:8000/RSLC-ABEV-Tracker/`. Serving from this folder alone works, but the sibling District Explorer data (targets / past leg margins) won't resolve and will fall back to the hosted site.
-- Cache busting: `?v=BUILD_VERSION` on JS/CSS imports in `index.html` and `BUILD_VERSION` in `app.js` — bump both when deploying
+- Cache busting: `?v=BUILD_VERSION` on JS/CSS imports in `index.html` and `BUILD_VERSION` in `app.js` — bump both when deploying. ABEV **data** JSON (`fetchJson`) instead busts with a fresh per-page-load token (`withDataBust`), so a normal reload shows the latest daily data push without a hard refresh; shapefiles + District Explorer data stay on `BUILD_VERSION` (large, rarely change)
 - Hosted on GitHub Pages from `main` at https://github.com/TheSpicelord/RSLC-ABEV-Tracker
 
 ## The Four Stats

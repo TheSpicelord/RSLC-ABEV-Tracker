@@ -51,12 +51,23 @@ if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260811a";
+const BUILD_VERSION = "20260811b";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
   if (!text) return text;
   return text.includes("?") ? `${text}&v=${BUILD_VERSION}` : `${text}?v=${BUILD_VERSION}`;
+}
+
+// ABEV data JSON is small and updated daily, so it's cache-busted with a fresh
+// token generated once per page load — a normal reload always fetches the latest
+// daily push, no hard refresh needed. (Shapefiles + District Explorer data stay
+// on BUILD_VERSION via withCacheBust: large and rarely changing, so keep caching.)
+const DATA_LOAD_TOKEN = Date.now();
+function withDataBust(url) {
+  const text = String(url || "").trim();
+  if (!text) return text;
+  return text.includes("?") ? `${text}&t=${DATA_LOAD_TOKEN}` : `${text}?t=${DATA_LOAD_TOKEN}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +194,7 @@ function buildDataMap(files) {
 
 async function fetchJson(url) {
   try {
-    const response = await fetch(withCacheBust(url));
+    const response = await fetch(withDataBust(url));
     if (!response.ok) return null;
     return await response.json();
   } catch (_err) {
