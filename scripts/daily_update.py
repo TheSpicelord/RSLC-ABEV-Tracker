@@ -111,24 +111,30 @@ STATE_MODELS = {
             "ELSE 'toss' END"  # 4-5 = swing; unmatched -> toss
         ),
     },
-    # AK and RI have no state exchange file. RI (below) still runs off the
-    # General feed of permanent-absentee signups; AK is temporarily repointed
-    # at its primary (see next).
-    # ---- TEMPORARY: Alaska Aug 18, 2026 PRIMARY bolt-on (remove ~mid-Aug) ----
-    # Same pattern as MI below, but with NO ElectionType filter (just State='AK')
-    # and the deep-root national model for lean. Pulled from the primary feed
-    # instead of the General feed; derive_senate stays in case the primary feed
-    # also lacks SenateDistrict. To retire: delete abev_table + election_day here
-    # (restoring the General-feed behavior) and the "02" overrides in config.js.
+    # Alaska has its own statewide DSP model (Sullivan vs Peltola, the 2026 U.S.
+    # Senate race): framework = 'Sullivan' -> rep, 'Peltola' -> dem, everything
+    # else ('Persuasion' + unmatched) -> toss, exactly like every other state
+    # model. This is AK's permanent lean model for BOTH the Aug 18 primary and
+    # the Nov 3 general.
+    #
+    # AK is *temporarily* pointed at its PRIMARY feed (Primary_Absentees_2026,
+    # State='AK', no ElectionType filter) with an 8/18 election day; derive_senate
+    # fills in the senate district the AK feed omits. To retire the primary
+    # bolt-on for the general: delete abev_table + election_day here (restoring
+    # the General-feed / Nov 3 default) and the "02" overrides in config.js, but
+    # KEEP model_table + bucket_sql — the DSP model carries straight over.
     "AK": {
         "abev_table": "dbo.Primary_Absentees_2026",
         "election_day": date(2026, 8, 18),
-        "model_table": NATIONAL_MODEL_TABLE,
+        "model_table": "vs.ak_scores_audiences_20260721",
         "join_col": "dt_regid",
-        "bucket_sql": NATIONAL_BUCKET_SQL,
+        "bucket_sql": (
+            "CASE WHEN m.framework = 'Sullivan' THEN 'rep' "
+            "WHEN m.framework = 'Peltola' THEN 'dem' "
+            "ELSE 'toss' END"  # 'Persuasion' and unmatched -> toss
+        ),
         "derive_senate": alaska_senate_from_house,
     },
-    # ---- end temporary AK primary bolt-on ----
     "RI": {
         "model_table": NATIONAL_MODEL_TABLE,
         "join_col": "dt_regid",

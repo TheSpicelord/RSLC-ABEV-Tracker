@@ -46,3 +46,12 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
     CREATE NONCLUSTERED INDEX IX_dtregid_PA
     ON dbo.PA_RSLC_R1_Exchange_20260418 (dt_regid)
     INCLUDE (UniverseNumber);
+
+-- Alaska DSP model (Sullivan/Peltola 2026 Senate; AK primary + general lean).
+-- Note the non-dbo schema (vs).
+IF NOT EXISTS (SELECT 1 FROM sys.indexes
+               WHERE name = 'IX_dtregid_AK'
+                 AND object_id = OBJECT_ID('vs.ak_scores_audiences_20260721'))
+    CREATE NONCLUSTERED INDEX IX_dtregid_AK
+    ON vs.ak_scores_audiences_20260721 (dt_regid)
+    INCLUDE (framework);
