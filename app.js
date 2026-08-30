@@ -51,7 +51,7 @@ if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260811b";
+const BUILD_VERSION = "20260830a";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -94,13 +94,23 @@ map.createPane("placeLabelPane");
 map.getPane("placeLabelPane").style.zIndex = 460;
 map.getPane("placeLabelPane").style.pointerEvents = "none";
 
-L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
+// CARTO basemap tiles require an API key (free tier: 5M tiles/month,
+// from https://carto.com/basemaps/apikey). Keys are meant to ship in
+// client-side code; without one CARTO serves an "API KEY REQUIRED" watermark.
+const CARTO_BASEMAP_KEY = "cb1_26g4_1_e39fbf4c3a45e5c2692d6e09";
+
+function cartoTileUrl(style) {
+  const url = `https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}{r}.png`;
+  return CARTO_BASEMAP_KEY ? `${url}?key=${CARTO_BASEMAP_KEY}` : url;
+}
+
+L.tileLayer(cartoTileUrl("dark_nolabels"), {
   maxZoom: 18,
   subdomains: "abcd",
   attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
 }).addTo(map);
 
-L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", {
+L.tileLayer(cartoTileUrl("dark_only_labels"), {
   pane: "placeLabelPane",
   maxZoom: 18,
   minZoom: 13,
