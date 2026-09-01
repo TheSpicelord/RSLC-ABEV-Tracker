@@ -528,7 +528,14 @@ def state_watermark(conn, abbr):
     """A cheap fingerprint of one state's source rows: how many, and the latest
     activity date of each kind. A single-table scan (no model join), so it's far
     cheaper than the full aggregate. If this matches the last run, the state's
-    source data is unchanged and we can reuse the JSON already on disk."""
+    source data is unchanged and we can reuse the JSON already on disk.
+
+    The model table is part of the fingerprint even though it costs nothing to
+    read: the numbers on disk depend on it just as much as on the feed, so
+    pointing a state at a refreshed model has to invalidate the watermark. Without
+    it a model swap leaves a state whose feed has not moved silently sitting on
+    JSON built from the old model - which is exactly what would have happened to
+    WI when it moved to RSLC_WI_Exchange_20260819."""
     model = STATE_MODELS[abbr]
     table = model.get("abev_table", ABEV_TABLE)
     extra_where = model.get("extra_where", "")
@@ -542,7 +549,8 @@ def state_watermark(conn, abbr):
         abbr,
     )
     n, req, ret, ev = cur.fetchone()
-    return {"n": int(n or 0), "req": req, "ret": ret, "ev": ev}
+    return {"n": int(n or 0), "req": req, "ret": ret, "ev": ev,
+            "model": model["model_table"]}
 
 
 def load_watermarks():
