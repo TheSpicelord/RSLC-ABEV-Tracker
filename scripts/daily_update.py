@@ -101,31 +101,39 @@ STATE_MODELS = {
             "ELSE 'toss' END"  # PersuasionFramework_Flag=1 and unmatched -> toss
         ),
     },
+    # Wisconsin and Michigan run the Aug 2026 refresh format, which carries an explicit
+    # Framework column ("Rep" / "Pers" / "Dem") beside the universe ladder. Bucket on
+    # Framework, not a universe range: the two tables do NOT number their universes the
+    # same way (WI puts "Available Dems" at 7 as Pers, MI at 6 as Dem), so a range that
+    # is right for one silently mis-buckets the other. This is also what District
+    # Explorer's model does for these two, so the projects agree district for district.
     "WI": {
-        "model_table": "dbo.RGA_WI_ExchangeData_20260131",
+        "model_table": "dbo.RSLC_WI_Exchange_20260819",
         "join_col": "dt_regid",
         "election_day": date(2026, 4, 7),  # spring Supreme Court (test data)
         "bucket_sql": (
-            "CASE WHEN m.universenumber BETWEEN 1 AND 3 THEN 'rep' "
-            "WHEN m.universenumber BETWEEN 6 AND 8 THEN 'dem' "
-            "ELSE 'toss' END"  # 4-5 = swing; unmatched -> toss
+            "CASE WHEN m.Framework = 'Rep' THEN 'rep' "
+            "WHEN m.Framework = 'Dem' THEN 'dem' "
+            "ELSE 'toss' END"  # 'Pers' and unmatched -> toss
+        ),
+    },
+    "MI": {
+        "model_table": "dbo.RSLC_MI_R2_Exchange_20260805",
+        "join_col": "dt_regid",
+        "bucket_sql": (
+            "CASE WHEN m.Framework = 'Rep' THEN 'rep' "
+            "WHEN m.Framework = 'Dem' THEN 'dem' "
+            "ELSE 'toss' END"  # 'Pers' and unmatched -> toss
         ),
     },
     # Alaska has its own statewide DSP model (Sullivan vs Peltola, the 2026 U.S.
     # Senate race): framework = 'Sullivan' -> rep, 'Peltola' -> dem, everything
     # else ('Persuasion' + unmatched) -> toss, exactly like every other state
-    # model. This is AK's permanent lean model for BOTH the Aug 18 primary and
-    # the Nov 3 general.
-    #
-    # AK is *temporarily* pointed at its PRIMARY feed (Primary_Absentees_2026,
-    # State='AK', no ElectionType filter) with an 8/18 election day; derive_senate
-    # fills in the senate district the AK feed omits. To retire the primary
-    # bolt-on for the general: delete abev_table + election_day here (restoring
-    # the General-feed / Nov 3 default) and the "02" overrides in config.js, but
-    # KEEP model_table + bucket_sql — the DSP model carries straight over.
+    # model. It served the Aug 18 primary and carries straight over to the Nov 3
+    # general, which is what this entry now pulls (General feed, default election
+    # day — the temporary primary bolt-on was retired after that election).
+    # derive_senate still fills in the senate district the AK feed omits.
     "AK": {
-        "abev_table": "dbo.Primary_Absentees_2026",
-        "election_day": date(2026, 8, 18),
         "model_table": "vs.ak_scores_audiences_20260721",
         "join_col": "dt_regid",
         "bucket_sql": (
@@ -154,14 +162,105 @@ STATE_MODELS = {
             "ELSE 'toss' END"  # 3-5 (persuasion/swing) and unmatched -> toss
         ),
     },
+    # ---- Ported from District Explorer's build_model_margins.py MODELS ----------
+    # Same tables, same bases, so a district's lean matches between the two projects.
+    # Watch the three non-standard ladders: GA runs to 9 universes (Dem base 8-9) and
+    # NJ/[MI] to 9 and 8 (NJ Dem base 7-9), so the usual 1-2 / 6-7 split is wrong for
+    # them. Anything outside the listed bases (persuasion/swing) and every unmatched
+    # voter falls to 'toss', as always.
+    "NV": {
+        "model_table": "dbo.NV_GOV_IE_R1_Exchange_20260105",
+        "join_col": "dt_regid",
+        "bucket_sql": (
+            "CASE WHEN m.universenumber IN (1, 2) THEN 'rep' "
+            "WHEN m.universenumber IN (6, 7) THEN 'dem' "
+            "ELSE 'toss' END"
+        ),
+    },
+    "AZ": {
+        "model_table": "dbo.RGA_AZ_R2_Exchange_20260121",
+        "join_col": "dt_regid",
+        "bucket_sql": (
+            "CASE WHEN m.universenumber IN (1, 2) THEN 'rep' "
+            "WHEN m.universenumber IN (6, 7) THEN 'dem' "
+            "ELSE 'toss' END"
+        ),
+    },
+    "GA": {
+        # 9 universes, not 7 — the Dem base is 8-9.
+        "model_table": "dbo.RSLC_GA_Exchange_20260721",
+        "join_col": "dt_regid",
+        "bucket_sql": (
+            "CASE WHEN m.universenumber IN (1, 2) THEN 'rep' "
+            "WHEN m.universenumber IN (8, 9) THEN 'dem' "
+            "ELSE 'toss' END"
+        ),
+    },
+    "NJ": {
+        # 9 universes with three-deep bases: 1-3 rep, 7-9 dem.
+        "model_table": "dbo.RSLC_NJ_Transfer_20250712",
+        "join_col": "dt_regid",
+        "bucket_sql": (
+            "CASE WHEN m.universenumber IN (1, 2, 3) THEN 'rep' "
+            "WHEN m.universenumber IN (7, 8, 9) THEN 'dem' "
+            "ELSE 'toss' END"
+        ),
+    },
+    "TX": {
+        # Audience flags rather than universes, and they are varchar '1'/'0' — an
+        # unquoted = 1 comparison would fail to match anything.
+        "model_table": "dbo.RSLC_TX_Scores_TurnoutSupportAudiences_20260601",
+        "join_col": "dt_regid",
+        "bucket_sql": (
+            "CASE WHEN m.[RSLC TX Strong Republican Supporters] = '1' "
+            "OR m.[RSLC TX Soft Republican Supporters] = '1' THEN 'rep' "
+            "WHEN m.[RSLC TX Strong Democrat Supporters] = '1' "
+            "OR m.[RSLC TX Soft Democrat Supporters] = '1' THEN 'dem' "
+            "ELSE 'toss' END"
+        ),
+    },
+    "IA": {
+        # framework_lahn / framework_sand are the two candidate audiences (int flags).
+        "model_table": "dbo.ia_scores_audiences_20260731",
+        "join_col": "dt_regid",
+        "bucket_sql": (
+            "CASE WHEN m.framework_lahn = 1 THEN 'rep' "
+            "WHEN m.framework_sand = 1 THEN 'dem' "
+            "ELSE 'toss' END"
+        ),
+    },
+    "OR": {
+        # District Explorer carries two Oregon models side by side (legislative ballot
+        # and governor ballot). This is a state-legislative tracker, so it takes the
+        # legislative one. Note the uppercase regid column in this table.
+        "model_table": "dbo.or_audience_flags_20200727",
+        "join_col": "DT_REGID",
+        "bucket_sql": (
+            "CASE WHEN m.state_leg_ballot_rep_audience = 1 THEN 'rep' "
+            "WHEN m.state_leg_ballot_dem_audience = 1 THEN 'dem' "
+            "ELSE 'toss' END"
+        ),
+    },
 }
 
-ACTIVE_STATES = ["VA", "WI", "AK", "RI"]
-# PA is wired in STATE_MODELS + indexed and ready, but held out of ACTIVE_STATES
-# until its 2026 general data returns to dbo.General_Absentees_2026 (the vendor
-# feed dropped it after briefly loading ~526k rows). Add "PA" here to activate.
-# (The Michigan Aug 4 primary bolt-on was removed after that election; its model
-# will be refreshed as a new table for the general.)
+ACTIVE_STATES = ["VA", "WI", "AK", "RI", "PA", "NJ", "GA"]
+# Every state in STATE_MODELS is wired and indexed; ACTIVE_STATES is the separate
+# question of whether the AB feed actually carries it yet. A state needs BOTH a
+# model and rows in dbo.General_Absentees_2026 before it belongs here.
+#
+# Feed contents observed 2026-09-01 (rows in General_Absentees_2026):
+#   VA 1,503,657 | PA 919,291 | NJ 871,439 | WI 428,058 | IL 409,204
+#   MN 179,329   | GA  56,198 | AK  23,232 | RI  13,157
+#
+#   * PA, NJ and GA were activated 2026-09-01, once each had both a model and feed
+#     data. (PA had been held out because the vendor dropped it after briefly
+#     loading ~526k rows; it came back.) All three are real Nov 3 generals, so they
+#     take the default election day.
+#   * IL and MN have feed data but no dedicated model. They would work today on
+#     the national fallback, the way RI does — add a STATE_MODELS entry pointing at
+#     NATIONAL_MODEL_TABLE / NATIONAL_BUCKET_SQL first.
+#   * NV, AZ, MI, TX, IA and OR have models but zero feed rows so far. Adding one
+#     to ACTIVE_STATES before its data lands produces an empty state, not an error.
 
 ABBR_TO_FIPS = {
     "AL": "01", "AK": "02", "AZ": "04", "AR": "05", "CA": "06", "CO": "08",
@@ -232,7 +331,8 @@ def state_query(model):
     """One aggregate query per state: counts by district pair, stat, bucket, event date.
 
     Source table and an optional extra WHERE filter are per-state (default: the
-    General feed, no filter). MI's temporary primary bolt-on overrides both."""
+    General feed, no filter). No state overrides them today; the hooks stay for
+    the next primary bolt-on, which is what the MI and AK ones used."""
     table = model.get("abev_table", ABEV_TABLE)
     extra_where = model.get("extra_where", "")
     return f"""
