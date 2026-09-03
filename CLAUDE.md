@@ -86,6 +86,35 @@ Flags: `--no-push` (files only), `--dry-run` (query + summary, no writes), `--st
 - **Caveat for display:** 2022/2024 were federal/presidential cycles — VA had no state-leg race those years, and WI 2022 ran under the pre-2023 map, so district geography won't align with the 2026 map for every state. Counts are real absentee/EV turnout by the voter's district, not legislative-race results.
 - **Retired district lines** (`HISTORY_STALE_LINES` in config.js, year → state abbrs; currently `2022: ["VA", "WI"]`): the year's data is still pulled and loaded, but the UI refuses to show it. `historyYearAppliesToSelectedState(year)` marks those column defs `na`, so both the count and margin cells render "N/A" (`historyNaCellHtml`) in every table, that sort key sorts as blank, and `trendYearsForScope()` drops the year so no checkbox or line appears. The columns stay in place on purpose — the years line up with every other state. `legRedistrictingNote()` surfaces the state's `LEG_REDISTRICTING_NOTES` footnote when either the leg-margin column or the past-cycle ABEV column is N/A.
 
+## Shapefiles
+
+`data/shapes/senate.zip` is **not** a stock Census file. It is
+`cb_2024_us_sldu_500k` with Michigan's 38 districts replaced by the **Crane A1**
+remedial plan - the map the MICRC adopted 2024-06-26 and the federal court
+approved 2024-07-26 in *Agee v. Benson*, first used in the **2026** election.
+
+Census cannot supply this yet. Its SLDU files are keyed to the legislative
+session in effect (`LSY`), and Michigan senators elected in 2022 sit through
+2026 under the old *Linden* map, so `cb_2024`, `cb_2025` and `tl_2025` all still
+carry Linden. Crane A1 should appear in the 2027-session vintage.
+
+Michigan geometry comes from the state's own Michigan Geographic Framework
+layer, `Remedial_State_Senate_2021` (ArcGIS org `dxRQUfTDNtfqZ301`, owner
+`michigan_admin`), pulled in NAD83 to match the Census `.prj` and simplified
+with `mapshaper -simplify 8% keep-shapes` to ~20.4k vertices - the Census 500k
+level (20.6k). Simplification is topology-aware, so shared borders stay
+coincident: the 38 districts still tile with zero overlap.
+
+Every non-Michigan feature is byte-identical to the Census original, and all
+attributes are untouched, so `GEOID`/`SLDUST`/`NAMELSAD` joins are unaffected -
+district *numbers* did not change, only boundaries. `ALAND`/`AWATER` are now
+stale for Michigan; nothing reads them.
+
+Rebuild only matters if the underlying Census file is refreshed - re-splice
+rather than dropping in a new `cb_*` wholesale, or Michigan silently reverts to
+Linden. To confirm which map a file holds: Crane A1 differs from Linden in
+exactly 14 districts (1, 2, 3, 5-11, 13, 23, 24, 38); the other 24 are identical.
+
 ## Data JSON Shapes
 
 Chamber file (`data/abev/va_house.json`):
