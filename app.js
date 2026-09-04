@@ -51,7 +51,7 @@ if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260903a";
+const BUILD_VERSION = "20260904a";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
