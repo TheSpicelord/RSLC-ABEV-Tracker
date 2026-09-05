@@ -15,7 +15,9 @@
 -- GA, NJ, TX, IA, OR and the WI/MI refreshes) are all in the low millions of
 -- rows and build in seconds; TX is the largest at ~18.6M.
 
--- National fallback model (AK, RI, and any state without its own exchange file)
+-- National fallback model (RI, NC, and any state without its own exchange file).
+-- NC deliberately has no index of its own here: it has no usable state model (see
+-- STATE_MODELS in daily_update.py) and rides this one.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes
                WHERE name = 'IX_natl_dtregid'
                  AND object_id = OBJECT_ID('dbo.[RSLC DRA June National Audiences and Scores]'))

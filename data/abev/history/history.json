@@ -1,13 +1,15 @@
 {
-  "updated": "2026-08-11",
+  "updated": "2026-09-05",
   "years": {
     "2022": {
       "house": [
+        "data/abev/history/2022/nc_house.json",
         "data/abev/history/2022/pa_house.json",
         "data/abev/history/2022/va_house.json",
         "data/abev/history/2022/wi_house.json"
       ],
       "senate": [
+        "data/abev/history/2022/nc_senate.json",
         "data/abev/history/2022/pa_senate.json",
         "data/abev/history/2022/va_senate.json",
         "data/abev/history/2022/wi_senate.json"
@@ -17,11 +19,13 @@
     },
     "2024": {
       "house": [
+        "data/abev/history/2024/nc_house.json",
         "data/abev/history/2024/pa_house.json",
         "data/abev/history/2024/va_house.json",
         "data/abev/history/2024/wi_house.json"
       ],
       "senate": [
+        "data/abev/history/2024/nc_senate.json",
         "data/abev/history/2024/pa_senate.json",
         "data/abev/history/2024/va_senate.json",
         "data/abev/history/2024/wi_senate.json"

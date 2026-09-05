@@ -10,6 +10,22 @@ cycles come out in the identical JSON shape.
     python scripts/historical_pull.py --states WI      # one state
     python scripts/historical_pull.py --dry-run        # connect, query, diagnostics, write nothing
 
+Safe to run in batches. The per-chamber files are per state, but national.json,
+timeline.json and history.json are per YEAR and cover every state at once, so
+each run MERGES its states onto whatever is already on disk rather than
+rewriting those three from scratch. (Before that fix, a --states NC run would
+have deleted VA/WI/PA from the year's national + timeline files and from the
+index the site reads, while leaving their per-chamber files orphaned on disk.)
+The index is rebuilt by globbing the year's directory, so it always describes
+the files that actually exist.
+
+A state whose lines were redrawn between a past cycle and 2026 still gets pulled
+here — the suppression is a display decision, made once in HISTORY_STALE_LINES /
+LEG_REDISTRICTING_NOTES in modules/config.js. Check that before adding a state:
+VA and WI are listed for 2022, and NC belongs there too (its 2022 elections ran
+on the SL 2022-2 / 2022-4 interim maps, replaced Oct 2023 by the SL 2023-146 /
+2023-149 maps used in 2024 and 2026).
+
 Requires the VPN + scripts/db_config.ini (same as daily_update.py; pip install pyodbc).
 
 Data realities this handles / surfaces:
@@ -253,14 +269,36 @@ def timeline_rows(timeline_stat):
     return [{"date": key, **timeline_stat[key]} for key in sorted(timeline_stat, key=order)]
 
 
+def load_existing(path, key):
+    """Previously written national/timeline payload, or an empty container.
+
+    This backfill is run in batches, one set of states at a time, and the
+    national + timeline + index files are per-YEAR, not per-state. Rebuilding
+    them from just the states in *this* run would delete every state pulled in
+    an earlier batch, so each run merges onto what is already on disk."""
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8")).get(key) or {}
+    except Exception:  # noqa: BLE001 - a corrupt file shouldn't lose the new pull
+        print(f"    ** WARNING: could not read {path.name}; it will be rebuilt "
+              f"from this run's states only.")
+        return {}
+
+
 def build_year_outputs(year, results, updated):
     """Write one year's per-chamber + national + timeline files; return the
-    index entry describing them."""
+    index entry describing them. States pulled in earlier batches are preserved
+    (see load_existing) — only the states in `results` are replaced."""
     out_dir = OUT_BASE / str(year)
     out_dir.mkdir(parents=True, exist_ok=True)
     entry = {"house": [], "senate": []}
-    states_out = []
-    timeline_out = {}
+
+    # Seed from disk, keyed so this run's states overwrite their own entries and
+    # leave everyone else's alone.
+    prior_nat = load_existing(out_dir / "national.json", "states")
+    states_by_abbr = {s["state_abbr"]: s for s in prior_nat if s.get("state_abbr")}
+    timeline_out = dict(load_existing(out_dir / "timeline.json", "states"))
 
     for abbr in sorted(results):
         fips = ABBR_TO_FIPS[abbr]
@@ -286,15 +324,24 @@ def build_year_outputs(year, results, updated):
             }
             path = out_dir / f"{abbr.lower()}_{chamber}.json"
             path.write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
-            entry[chamber].append(f"data/abev/history/{year}/{path.name}")
 
-        states_out.append({
+        states_by_abbr[abbr] = {
             "state_fips": fips,
             "state_abbr": abbr,
             "state_name": ABBR_TO_NAME.get(abbr, abbr),
             **statewide,
-        })
+        }
         timeline_out[fips] = {stat: timeline_rows(timeline[stat]) for stat in STATS}
+
+    states_out = [states_by_abbr[a] for a in sorted(states_by_abbr)]
+
+    # The index lists whatever chamber files actually exist for the year, rather
+    # than only the ones this run happened to write — the directory is the truth.
+    for chamber in ("house", "senate"):
+        entry[chamber] = sorted(
+            f"data/abev/history/{year}/{path.name}"
+            for path in out_dir.glob(f"*_{chamber}.json")
+        )
 
     (out_dir / "national.json").write_text(
         json.dumps({"year": year, "updated": updated, "states": states_out}, separators=(",", ":")),
@@ -306,16 +353,29 @@ def build_year_outputs(year, results, updated):
     )
     entry["national"] = f"data/abev/history/{year}/national.json"
     entry["timeline"] = f"data/abev/history/{year}/timeline.json"
-    print(f"  wrote {len(entry['house'])} house + {len(entry['senate'])} senate files for {year}.")
+    print(f"  {year}: {len(entry['house'])} house + {len(entry['senate'])} senate files, "
+          f"{len(states_out)} states ({', '.join(sorted(states_by_abbr))}).")
     return entry
 
 
 def write_history_index(index_years, updated):
+    """Merge this run's years onto the existing index — a run of only 2024 must
+    not drop 2022 from the index the site reads."""
     OUT_BASE.mkdir(parents=True, exist_ok=True)
-    (OUT_BASE / "history.json").write_text(
-        json.dumps({"updated": updated, "years": index_years}, indent=2),
+    path = OUT_BASE / "history.json"
+    merged = {}
+    if path.exists():
+        try:
+            merged = json.loads(path.read_text(encoding="utf-8")).get("years") or {}
+        except Exception:  # noqa: BLE001
+            print("  ** WARNING: history.json unreadable; rebuilding from this run.")
+            merged = {}
+    merged.update(index_years)
+    path.write_text(
+        json.dumps({"updated": updated, "years": merged}, indent=2),
         encoding="utf-8",
     )
+    index_years = merged
     print(f"Wrote history index for years: {', '.join(sorted(index_years))}.")
 
 

@@ -148,6 +148,22 @@ STATE_MODELS = {
         "join_col": "dt_regid",
         "bucket_sql": NATIONAL_BUCKET_SQL,
     },
+    # North Carolina runs on the national fallback, like RI, because the one NC
+    # file on the server is not a partisan classification and cannot be used as
+    # one. dbo.NC_Legislative_GOP_UAF_Scores_Audiences is a *GOP targeting* file
+    # (the name is literal): its five audiences are clean and mutually exclusive,
+    # but they split 3.2M "GOP" to 1.3M "DEM" in an even state, it covers only
+    # 66.8% of the NC absentee feed against 90-99% for every other state model,
+    # and the misses are partisan - urban Dem districts match ~44-50%, rural GOP
+    # ones ~80%. Bucketing on it puts the 2024 NC absentee electorate at R+29.7.
+    # The national model matches 97.5% of the same feed, uniformly (97-99% in
+    # every senate district), and lands it at R+3.9 against an actual Trump +3.2.
+    # If a real RSLC NC exchange file ever arrives, swap it in here and index it.
+    "NC": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
     # Pennsylvania: real Nov 3 general (default election day), pulled from the
     # General feed. State exchange model buckets by UniverseNumber 1-7:
     # 1-2 (Rep Base / Rep Bring Home) -> rep, 6-7 (Dems Going Home / Dem Base)
@@ -243,14 +259,23 @@ STATE_MODELS = {
     },
 }
 
-ACTIVE_STATES = ["VA", "WI", "AK", "RI", "PA", "NJ", "GA"]
+ACTIVE_STATES = ["VA", "WI", "AK", "RI", "PA", "NJ", "GA", "NC"]
 # Every state in STATE_MODELS is wired and indexed; ACTIVE_STATES is the separate
 # question of whether the AB feed actually carries it yet. A state needs BOTH a
 # model and rows in dbo.General_Absentees_2026 before it belongs here.
 #
-# Feed contents observed 2026-09-01 (rows in General_Absentees_2026):
-#   VA 1,503,657 | PA 919,291 | NJ 871,439 | WI 428,058 | IL 409,204
-#   MN 179,329   | GA  56,198 | AK  23,232 | RI  13,157
+# Feed contents observed 2026-09-05 (rows in General_Absentees_2026):
+#   FL 1,892,416 | VA 1,503,657 | PA 919,291 | NJ 871,439 | IL 444,380
+#   WI   428,058 | MN   179,329 | GA  61,729 | AK  23,232 | RI  14,105
+#
+#   * NC is activated but the vendor has NOT loaded it yet (0 rows on 2026-09-05,
+#     though NC ballots went out 9/4). It is here on purpose: build_outputs()
+#     omits a state with no activity, so NC stays invisible on the site and then
+#     publishes itself on the first daily run after the feed lands. Its 2022/2024
+#     history is already backfilled and does not depend on the 2026 feed.
+#   * FL is new to the feed since 2026-09-01 and is the largest state in it, but
+#     it has no model - it needs a STATE_MODELS entry (national fallback is fine)
+#     before it can be activated.
 #
 #   * PA, NJ and GA were activated 2026-09-01, once each had both a model and feed
 #     data. (PA had been held out because the vendor dropped it after briefly
@@ -475,6 +500,14 @@ def build_outputs(results, updated):
             path = OUT_DIR / f"{abbr.lower()}_{chamber}.json"
             path.write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
             out_index[chamber].append(f"data/abev/{path.name}")
+
+        # A state can be activated before the vendor delivers it. Publishing it
+        # with all-zero totals would read as "no absentee activity in NC", which
+        # is a factual claim we can't make - so leave it out entirely until it
+        # has something, and let a later run pick it up.
+        if not any(statewide[stat][b] for stat in STATS for b in BUCKETS):
+            print(f"[{abbr}] no activity in the feed yet - omitted from national/timeline.")
+            continue
 
         states_out.append({
             "state_fips": fips,

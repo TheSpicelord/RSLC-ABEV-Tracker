@@ -36,7 +36,7 @@ export const HISTORY_ELECTION_DAYS = {
 // years line up across states, but every value reads N/A rather than a count
 // that belongs to a different map.
 export const HISTORY_STALE_LINES = {
-  2022: ["VA", "WI"],
+  2022: ["VA", "WI", "NC"],
 };
 
 export const CHAMBER_NAMES_URL = "data/state_chamber_names.json";
@@ -70,6 +70,16 @@ export const LEG_REDISTRICTING_NOTES = {
   "55": {
     missingYear: 2022,
     note: "Wisconsin redrew its state legislative maps in 2023 - data from 2022 is not applicable to the 2026 election.",
+  },
+  // NC's 2022 legislative elections ran on the court-supervised interim maps
+  // (SL 2022-2 Senate / SL 2022-4 House). The General Assembly replaced both on
+  // 2023-10-25 (SL 2023-146 / SL 2023-149); those are the lines used in 2024 and
+  // again in 2026, so 2024 ABEV is comparable and 2022 is not. The state
+  // constitution allows only one legislative redraw per census, so the Oct 2025
+  // mid-decade redistricting was congressional-only and left these untouched.
+  "37": {
+    missingYear: 2022,
+    note: "North Carolina redrew its state legislative maps in October 2023 - data from 2022 is not applicable to the 2026 election.",
   },
 };
 
