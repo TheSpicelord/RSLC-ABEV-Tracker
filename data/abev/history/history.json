@@ -28,8 +28,7 @@
         "data/abev/history/2022/tx_house.json",
         "data/abev/history/2022/va_house.json",
         "data/abev/history/2022/wi_house.json",
-        "data/abev/history/2022/wv_house.json",
-        "data/abev/history/2022/wy_house.json"
+        "data/abev/history/2022/wv_house.json"
       ],
       "senate": [
         "data/abev/history/2022/ak_senate.json",
@@ -58,8 +57,7 @@
         "data/abev/history/2022/tx_senate.json",
         "data/abev/history/2022/va_senate.json",
         "data/abev/history/2022/wi_senate.json",
-        "data/abev/history/2022/wv_senate.json",
-        "data/abev/history/2022/wy_senate.json"
+        "data/abev/history/2022/wv_senate.json"
       ],
       "national": "data/abev/history/2022/national.json",
       "timeline": "data/abev/history/2022/timeline.json"

@@ -321,8 +321,8 @@ export const STATE_DATA_NOTES = {
     text: "Texas carries no request dates in either historical year, so its Requested view is zero for 2022 and 2024. Returned and Early Vote are unaffected.",
   }],
   "56": [
-    { years: [2022], stats: ["returned", "ev"],
-      text: "Wyoming's 2022 file is effectively request-only: 57,634 requests against just 62 returns and no early votes. 2024 is healthy by comparison (37,563 / 34,499 / 81,211), so this is a gap specific to 2022, not how Wyoming votes." },
+    { years: [2022],
+      text: "Wyoming has no 2022 column because that year's file was unusable: 57,634 requests against just 62 returns and no early votes at all. It was dropped rather than shown as a column that is 99.9% empty. 2024 is healthy (37,563 / 34,499 / 81,211), so this is a gap specific to 2022, not how Wyoming votes." },
     { text: "Wyoming matches the national model at 78-82%, the lowest of any backfilled state (most run 88-98%). Unmatched voters fall to Swing, so Wyoming's Swing bucket is inflated relative to other states and its GOP/Dem margin is correspondingly damped." },
   ],
   "51": [{

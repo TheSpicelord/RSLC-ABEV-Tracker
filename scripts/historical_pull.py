@@ -141,6 +141,26 @@ def valid_district(district_id, abbr, chamber_index):
     return 1 <= value <= cap
 
 
+# A state-year with essentially no VOTES is a broken export, not a quiet cycle,
+# and it cannot support anything the UI offers - On This Day, Final Results and
+# the trend lines all compare vote totals. Wyoming 2022 is the case in hand:
+# 57,634 requests against 62 returns and zero early votes. Rather than publish a
+# column that is 99.9% empty, the year is dropped for that state entirely.
+#
+# The floor is deliberately far below any real value. Across all 28 backfilled
+# states the smallest genuine state-year is AK 2022 at 92,864 votes, and the next
+# smallest after Wyoming's 62 is 15x this threshold - so nothing plausible sits
+# near it. It is measured on returned + ev, NOT on requests, because a broken
+# export usually still carries its request rows (Wyoming's does).
+#
+# Note this deliberately does NOT catch a stat that is zero BY DESIGN: TN has no
+# requests, OR and MT no early votes, PA/MI/CT none in 2022. Every one of those
+# still has hundreds of thousands of votes in the other stats and is untouched.
+# A genuinely request-only *historical* year would be suppressed by this rule and
+# would need an explicit exception here.
+MIN_HISTORY_VOTES = 5000
+
+
 def table_for_year(year):
     return f"dbo.General_Absentees_{year}"
 
@@ -410,10 +430,24 @@ def build_year_outputs(year, results, updated):
         # states_by_abbr is seeded from the file already on disk: without it, a
         # re-run would keep a stale zero row forever. Same rule as
         # daily_update.build_outputs().
-        if not any(statewide[stat][b] for stat in STATS for b in BUCKETS):
-            print(f"  [{abbr}] no rows in the {year} feed - omitted from national/timeline.")
+        votes = sum(statewide[s][b] for s in ("returned", "ev") for b in BUCKETS)
+        total = sum(statewide[s][b] for s in STATS for b in BUCKETS)
+        if not total or votes < MIN_HISTORY_VOTES:
+            why = (f"no rows in the {year} feed" if not total
+                   else f"only {votes:,} votes (returned+ev) against {total:,} rows "
+                        f"- under the {MIN_HISTORY_VOTES:,} floor, so the year is unusable")
+            print(f"  [{abbr}] {why} - omitting {year} entirely.")
             states_by_abbr.pop(abbr, None)
             timeline_out.pop(fips, None)
+            # Drop any chamber files a previous run left on disk. The index is
+            # rebuilt by globbing this directory, so a stale file would otherwise
+            # keep the year alive in the index even though it is gone from
+            # national.json - a half-present state is worse than an absent one.
+            for chamber in ("house", "senate"):
+                stale = out_dir / f"{abbr.lower()}_{chamber}.json"
+                if stale.exists():
+                    stale.unlink()
+                    print(f"  [{abbr}] removed stale {stale.name}")
             continue
 
         states_by_abbr[abbr] = {
