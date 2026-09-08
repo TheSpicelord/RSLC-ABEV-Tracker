@@ -4,6 +4,7 @@ import {
   ABEV_INDEX_URL,
   ABEV_NATIONAL_URL,
   ABEV_START_OVERRIDES,
+  STATE_DATA_NOTES,
   ABEV_TIMELINE_URL,
   ABEV_VIEWS,
   AUTH_ENABLED,
@@ -52,7 +53,7 @@ if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260908c";
+const BUILD_VERSION = "20260908d";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -132,7 +133,7 @@ async function init() {
   initTrendChart();
   renderViewButtons();
 
-  detailsTitle.textContent = "National Overview";
+  setDetailsTitle("National Overview");
   setDetailsLoading("Loading ABEV data...");
   resetSidebarScroll();
 
@@ -1544,7 +1545,7 @@ async function selectStateByMeta(meta, feature, options = {}) {
   clearStateHoverOutline();
   hideDistrictHoverInfo();
   stateSelect.value = meta.key;
-  detailsTitle.textContent = selectedStateChamberHeader();
+  setDetailsTitle(selectedStateChamberHeader());
 
   if (state.statesLayer && !map.hasLayer(state.statesLayer)) {
     map.addLayer(state.statesLayer);
@@ -1599,7 +1600,7 @@ function renderNationalOverview() {
   hideSchedTooltip();
   state.detailsRenderToken += 1;
   const renderToken = state.detailsRenderToken;
-  detailsTitle.textContent = "National Overview";
+  setDetailsTitle("National Overview");
   setDetailsLoading("Loading national overview table...");
   resetSidebarScroll();
   requestAnimationFrame(() => {
@@ -1758,7 +1759,7 @@ function renderDistrictLayerForSelectedState() {
       return;
     }
     state.detailsRenderToken += 1;
-    detailsTitle.textContent = selectedStateChamberHeader();
+    setDetailsTitle(selectedStateChamberHeader());
     details.innerHTML = `
       ${statewideCardsHtml()}
       ${stateChronoButtonsHtml()}
@@ -2138,6 +2139,30 @@ function nationalOverviewHtml() {
 // A cell in the Schedule table: the window text plus an optional circled-i. The
 // tooltip text rides in data-tip (not the native title) so we can pop a custom
 // bubble with a short delay; see the sched-tooltip handlers below.
+// Data exceptions for one state, optionally narrowed to a year / stat / chamber.
+// Passing no filter returns everything on file for that state, which is what the
+// national table wants: one dot per state that has anything worth knowing.
+function stateDataNotesFor(fips, { year = null, stat = null, chamber = null } = {}) {
+  const notes = STATE_DATA_NOTES[normalizeStateFips(fips)] || [];
+  return notes.filter((n) => {
+    if (year !== null && n.years && !n.years.includes(Number(year))) return false;
+    if (stat !== null && n.stats && !n.stats.includes(stat)) return false;
+    if (chamber !== null && n.chambers && !n.chambers.includes(chamber)) return false;
+    return true;
+  });
+}
+
+// Reuses the Schedule tab's circled-i: same .sched-info class, so it inherits
+// that component's styling and the delegated hover handler on `details`.
+// Multiple notes are stacked into one bubble rather than shown as several dots.
+function dataNoteIconHtml(notes) {
+  if (!notes.length) return "";
+  const tip = notes.map((n) => n.text).join("
+
+");
+  return ` <span class="sched-info" data-tip="${escapeHtml(tip)}" role="img" aria-label="${escapeHtml(tip)}" tabindex="0">&#9432;</span>`;
+}
+
 function schedCellHtml(text, tip) {
   const info = tip
     ? ` <span class="sched-info" data-tip="${escapeHtml(tip)}" role="img" aria-label="${escapeHtml(tip)}" tabindex="0">&#9432;</span>`
@@ -2285,7 +2310,7 @@ function nationalStatTableHtml() {
       const cells = DETAIL_STATS.map((stat) => statCellHtml(row.rec, stat)).join("");
       return `
         <tr class="target-row state-select-row" data-state-key="${escapeHtml(row.stateKey)}">
-          <td class="abev-name-cell">${escapeHtml(row.stateName)}</td>
+          <td class="abev-name-cell">${escapeHtml(row.stateName)}${dataNoteIconHtml(stateDataNotesFor(row.stateFips))}</td>
           ${cells}
         </tr>
       `;
@@ -2329,6 +2354,7 @@ function nationalOverviewRows() {
     rows.push({
       stateKey: meta.key,
       stateName: meta.name || meta.abbr || meta.key,
+      stateFips,
       rec,
     });
   }
@@ -2362,6 +2388,16 @@ function setDetailsLoading(message) {
   details.innerHTML = `<div class="loading-indicator">${escapeHtml(message)}</div>`;
 }
 
+// The sidebar heading, plus a circled-i when the selected state has data
+// exceptions. Narrowed by chamber so Maryland's house note doesn't appear over
+// its senate. Nationally there is no selected state, so no icon.
+function setDetailsTitle(text) {
+  const notes = state.selectedState
+    ? stateDataNotesFor(state.selectedState.fips, { chamber: state.chamber })
+    : [];
+  detailsTitle.innerHTML = escapeHtml(text) + dataNoteIconHtml(notes);
+}
+
 function selectedStateChamberHeader() {
   if (state.chronoMode) {
     const name = state.selectedState?.name || state.selectedState?.abbr || "State";
@@ -2374,7 +2410,7 @@ function showStateChamberOverview(options = {}) {
   if (state.mode !== "state" || !state.selectedState) return;
   state.detailsRenderToken += 1;
   const renderToken = state.detailsRenderToken;
-  detailsTitle.textContent = selectedStateChamberHeader();
+  setDetailsTitle(selectedStateChamberHeader());
   requestAnimationFrame(() => {
     if (state.mode !== "state" || renderToken !== state.detailsRenderToken) return;
     details.innerHTML = stateChamberOverviewHtml();
@@ -2770,7 +2806,7 @@ function showChronoView(options = {}) {
   if (state.mode !== "state" || !state.selectedState || !state.chronoMode) return;
   state.detailsRenderToken += 1;
   const renderToken = state.detailsRenderToken;
-  detailsTitle.textContent = selectedStateChamberHeader();
+  setDetailsTitle(selectedStateChamberHeader());
   requestAnimationFrame(() => {
     if (state.mode !== "state" || !state.chronoMode || renderToken !== state.detailsRenderToken) return;
     details.innerHTML = chronoViewHtml();
@@ -3626,7 +3662,7 @@ function toggleSort(sortState, key) {
 
 function showDistrictDetailPanel(properties, joinInfo, rec, options = {}) {
   state.detailsRenderToken += 1;
-  detailsTitle.textContent = chamberDisplayName();
+  setDetailsTitle(chamberDisplayName());
   details.innerHTML = districtDetailHtml(properties, joinInfo, rec);
   wireDetailsInteractions();
   if (!options.preserveScroll) resetSidebarScroll();
@@ -3774,19 +3810,22 @@ function wireDetailsInteractions() {
   if (state.detailsInteractionsWired) return;
   state.detailsInteractionsWired = true;
 
-  // Schedule ⓘ tooltip: short-delay show on hover, hide on leave/scroll.
-  details.addEventListener("mouseover", (event) => {
+  // Circled-i tooltip: short-delay show on hover, hide on leave/scroll. Bound to
+  // the SIDEBAR, not to `details` - the sidebar heading that carries a state's
+  // data-exception icon is a sibling of `details`, so a handler on `details`
+  // alone would leave that icon inert.
+  const sidebarEl = details.closest(".sidebar") || details;
+  sidebarEl.addEventListener("mouseover", (event) => {
     const icon = event.target instanceof Element ? event.target.closest(".sched-info") : null;
     if (!icon) return;
     if (schedTipTimer) clearTimeout(schedTipTimer);
     schedTipTimer = setTimeout(() => showSchedTooltip(icon), 130);
   });
-  details.addEventListener("mouseout", (event) => {
+  sidebarEl.addEventListener("mouseout", (event) => {
     const icon = event.target instanceof Element ? event.target.closest(".sched-info") : null;
     if (icon) hideSchedTooltip();
   });
-  const sidebarEl = details.closest(".sidebar");
-  if (sidebarEl) sidebarEl.addEventListener("scroll", hideSchedTooltip, { passive: true });
+  sidebarEl.addEventListener("scroll", hideSchedTooltip, { passive: true });
 
   details.addEventListener("mouseover", (event) => {
     const targetEl = event.target instanceof Element ? event.target : null;

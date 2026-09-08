@@ -225,6 +225,92 @@ export const LEG_REDISTRICTING_NOTES = {
 };
 
 // Raw stats: requested / returned / ev; "voted" is calculated as returned + ev.
+// Per-state data exceptions - the things a reader would otherwise misread as a
+// bug or as missing data. This is the machine-readable companion to the prose in
+// CLAUDE.md, and it is what drives the circled-i next to a state's name.
+//
+// SCOPE: this list is for DATA quirks - a stat that is zero by design, a year the
+// vendor never delivered, a district id rebuilt from somewhere other than the
+// feed. Redistricting is NOT here: it has its own machinery in
+// HISTORY_STALE_LINES / HISTORY_STALE_DISTRICTS / LEG_REDISTRICTING_NOTES above,
+// which blanks the affected cells rather than merely annotating them.
+//
+// Each note may be narrowed by `years`, `stats` and `chambers`; omitting a key
+// means "applies to all of them". Keep `text` to something a non-technical
+// reader can act on - it is rendered verbatim in a tooltip.
+//
+// WHEN YOU ADD A STATE, ADD ITS EXCEPTIONS HERE. A quirk recorded only in a
+// commit message or a code comment is invisible to everyone looking at the site.
+export const STATE_DATA_NOTES = {
+  "02": [{
+    chambers: ["senate"],
+    text: "Alaska's feed carries no senate district, so each senate district is derived from its two house districts (A = HD 1-2, B = 3-4, and so on).",
+  }],
+  "09": [{
+    years: [2022], stats: ["ev"],
+    text: "Connecticut had no in-person early voting until 2024, so its 2022 Early Vote total is correctly zero rather than missing.",
+  }],
+  "17": [{
+    years: [2022], chambers: ["senate"],
+    text: "Illinois' 2022 feed has a corrupt SenateDistrict column. The senate district is rebuilt from the two house districts nested inside it, which holds for 100% of Illinois rows.",
+  }],
+  "21": [
+    { years: [2024],
+      text: "Kentucky is absent from the 2024 absentee feed entirely - it carries 49 states and Kentucky is not one of them - so Kentucky has no 2024 data at all." },
+    { years: [2022],
+      text: "Every Kentucky 2022 row carries the same placeholder date: 11/8 for mail, 11/5 for early voting. District totals and margins are sound, but the day-by-day and trend views are not meaningful." },
+  ],
+  "24": [{
+    chambers: ["house"],
+    text: "Maryland elects delegates from 71 units, which its feed cannot express, so the subdistrict letter is rebuilt from the voter file. Attribution in the 18 subdivided districts is 84.8% for 2022 and 92.1% for 2024; the other 29 are complete.",
+  }],
+  "25": [{
+    text: "Massachusetts is deliberately not loaded. It has no 2022 rows at all, and its feed's district columns are internal codes (0-337) rather than district numbers, so nothing joins.",
+  }],
+  "36": [{
+    text: "New York's Assembly plan was replaced for 2024 and the Senate lines moved with it, so the affected districts read N/A for 2022. Whether the 2024 lines carry into 2026 is unverified - New York has no 2026 feed rows yet.",
+  }],
+  "37": [{
+    text: "North Carolina's modeled lean uses the national model. The one North Carolina file on the server is a GOP targeting file rather than a partisan classification, and would have put the 2024 absentee electorate at R+29.7 against an actual result of R+3.",
+  }],
+  "38": [
+    { chambers: ["house"],
+      text: "North Dakota's House district 4 is split into 4A and 4B, but the feed carries only \"4\", so the subdistrict is rebuilt from the voter file." },
+    { years: [2024],
+      text: "8.7% of North Dakota's 2024 rows carry no district at all. Those voters count in the statewide total, so North Dakota's district counts sum short of it." },
+  ],
+  "41": [
+    { stats: ["ev"],
+      text: "Oregon votes entirely by mail, so its Early Vote total is legitimately zero." },
+    { years: [2022], stats: ["requested"],
+      text: "Oregon's 2022 feed carries no request dates, so Requested is zero for that year." },
+  ],
+  "44": [{
+    stats: ["returned", "ev"],
+    text: "Every Rhode Island row is a permanent-absentee list signup, so Returned and Early Vote are zero by design.",
+  }],
+  "46": [{
+    chambers: ["house"],
+    text: "South Dakota's House districts 26 and 28 are each split into A and B halves, but the feed carries only the number, so the subdistrict is rebuilt from the voter file.",
+  }],
+  "47": [{
+    stats: ["requested", "returned"],
+    text: "Tennessee has no no-excuse absentee voting and its feed carries only early in-person votes, so Requested and Returned are zero by design - the mirror of Rhode Island.",
+  }],
+  "48": [{
+    years: [2022, 2024], stats: ["requested"],
+    text: "Texas carries no request dates in either historical year, so its Requested view is zero for 2022 and 2024. Returned and Early Vote are unaffected.",
+  }],
+  "51": [{
+    years: [2026],
+    text: "Virginia's 2026 numbers come from the April referendum, which is being used as test data. They are not the November general election.",
+  }],
+  "55": [{
+    years: [2026],
+    text: "Wisconsin's 2026 numbers come from the April Supreme Court race, which is being used as test data. They are not the November general election.",
+  }],
+};
+
 export const STAT_LABELS = {
   requested: "ABs Requested",
   returned: "ABs Returned",

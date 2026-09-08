@@ -181,6 +181,34 @@ Read at runtime from the sibling `RSLC-District-Explorer` project — **never co
 - **Tiers** come from the record's `tier` field (1–4; 1–3 in practice). **Offense/Defense is derived, not stored:** R-held = Defense, D-held = Offense, mixed multi-member = Split (`incumbentPartyCode()` → `targetSectionForParty()`).
 - **Leg margin columns** are the two most recent `leg_YYYY` values present for that chamber, so odd-year states work (VA → 2023/2025; most → 2022/2024). If only one year exists and `LEG_REDISTRICTING_NOTES` has an entry for the state, the older year renders as an explicit N/A column plus a footnote — WI is the case in hand (redrawn 2023, so 2022 ran under a different map). Senate seats with staggered terms legitimately show N/A for a year they weren't up.
 
+## State data exceptions (`STATE_DATA_NOTES`)
+
+Every per-state data quirk that a reader could misread as a bug lives in
+**`STATE_DATA_NOTES` in `modules/config.js`**, keyed by FIPS. It renders as a circled-ⓘ
+next to the state's name in the national Overview table and beside the sidebar heading
+when you're inside a state, reusing the Schedule tab's `.sched-info` component and its
+delegated hover handler.
+
+**This list is the contract: when you add or discover a state quirk, add it here.** A
+caveat that lives only in a commit message, a code comment, or this file is invisible to
+everyone actually looking at the numbers — which is the whole failure mode it exists to
+prevent.
+
+- A note may carry `years`, `stats` and/or `chambers`; omitting a key means "all of them".
+  `stateDataNotesFor(fips, {year, stat, chamber})` does the filtering. The state header
+  narrows by chamber (so MD's house note doesn't appear over its senate); the national
+  table passes no filter, so one dot covers everything known about that state.
+- **Redistricting is deliberately NOT in this list.** It has its own machinery in
+  `HISTORY_STALE_LINES` / `HISTORY_STALE_DISTRICTS` / `LEG_REDISTRICTING_NOTES`, which
+  blanks the affected cells to N/A rather than merely annotating them. A note here would
+  be a weaker response to the same problem.
+- The tooltip handler is bound to **`.sidebar`, not `details`** — `#detailsTitle` is a
+  *sibling* of `#details`, so a handler on `details` alone leaves the heading's icon inert.
+- Currently 19 notes across 16 states. Most are on history-only states (TN, KY, TX, OR,
+  IL, MD, CT, NY, MA, ND, SD), which is exactly why the state header carries the icon too:
+  those states never appear in the national Overview table, so that dot alone would never
+  be seen for them.
+
 ## UI filters
 
 `Up in 2026` (`next_election === 2026`) and `Target Districts` checkboxes in the topbar. Both compute join-key sets in `refreshFilteredDistrictJoinKeySet()`.
