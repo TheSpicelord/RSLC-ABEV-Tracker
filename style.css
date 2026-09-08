@@ -3384,6 +3384,11 @@ html.auth-pending main {
   line-height: 1.32;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
   pointer-events: none;
+  /* A state with more than one data note stacks them, separated by a blank
+     line. The tooltip is filled with textContent, so without pre-line those
+     notes collapse into one run-on paragraph. Schedule tips have no newlines,
+     so this is a no-op for them. */
+  white-space: pre-line;
 }
 .sched-tooltip[hidden] {
   display: none;

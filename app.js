@@ -1,4 +1,4 @@
-import { requireAuth } from "./modules/auth.js?v=20260908e";
+import { requireAuth } from "./modules/auth.js?v=20260908f";
 import {
   ABEV_HISTORY_INDEX_URL,
   ABEV_INDEX_URL,
@@ -31,7 +31,7 @@ import {
   VIEW_BUTTON_LABELS,
   VIEW_CARD_LABELS,
   VIEW_MAP_STAT,
-} from "./modules/config.js?v=20260908e";
+} from "./modules/config.js?v=20260908f";
 import {
   details,
   detailsTitle,
@@ -45,15 +45,15 @@ import {
   targetDistrictsToggle,
   updatedBadge,
   upIn2026Toggle,
-} from "./modules/dom.js?v=20260908e";
-import { state } from "./modules/state.js?v=20260908e";
-import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20260908e";
+} from "./modules/dom.js?v=20260908f";
+import { state } from "./modules/state.js?v=20260908f";
+import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20260908f";
 
 if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260908e";
+const BUILD_VERSION = "20260908f";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -2157,9 +2157,7 @@ function stateDataNotesFor(fips, { year = null, stat = null, chamber = null } = 
 // Multiple notes are stacked into one bubble rather than shown as several dots.
 function dataNoteIconHtml(notes) {
   if (!notes.length) return "";
-  const tip = notes.map((n) => n.text).join("
-
-");
+  const tip = notes.map((n) => n.text).join("\n\n");
   return ` <span class="sched-info" data-tip="${escapeHtml(tip)}" role="img" aria-label="${escapeHtml(tip)}" tabindex="0">&#9432;</span>`;
 }
 

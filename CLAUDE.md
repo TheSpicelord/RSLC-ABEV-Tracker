@@ -15,6 +15,12 @@ Interactive map/table tracker of Absentee (AB) and Early Vote (EV) activity for 
     blank, with no partial degradation to hint at what happened. That is exactly what
     `STATE_DATA_NOTES` did on 2026-09-08: the request log showed `index.html`, `style.css`,
     `app.js`, and then nothing at all.
+  - **`node --check file.js` does NOT catch this class of bug.** On a `.js` file Node
+    parses as CommonJS and let an unterminated string literal through; the browser, using
+    module semantics, rejected the same file. **Validate as a module**: `cp app.js
+    /tmp/x.mjs && node --check /tmp/x.mjs`, which reports the exact line. Better still,
+    fetch the bytes the browser will actually fetch (`curl "app.js?v=<version>"`) and parse
+    those, so a stale-serve is caught too.
   - Diagnosis is quick: if the server log stops after `app.js` and never requests
     `modules/config.js`, it is this. A hard refresh clears it locally, but shipping the
     fix requires a **version bump**, because the broken `app.js` is itself cached under
