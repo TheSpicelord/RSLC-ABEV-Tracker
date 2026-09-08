@@ -347,6 +347,40 @@ STATE_MODELS = {
         "join_col": "dt_regid",
         "bucket_sql": NATIONAL_BUCKET_SQL,
     },
+    # MT / ID / WY on the national fallback - no exchange file for any of them.
+    # Added 2026-09-08 for the backfill; none is in ACTIVE_STATES and none has
+    # 2026 feed rows. All three have plain numeric district ids matching District
+    # Explorer exactly (MT 100/50, ID 35/35, WY 62/31), so none needs hd_sql.
+    # Feed quirks, all verified rather than assumed:
+    #
+    #  * MT HAS NO EARLY-VOTE ROWS in either year. Montana does allow in-person
+    #    absentee at the county office from 30 days out, so unlike TN/OR this is a
+    #    FEED gap rather than a legal one - the votes exist, the column doesn't.
+    #    MT's EV view is therefore zero, and its AB Requested/Returned are complete.
+    #  * ID has 51,459 early votes in 2022 and ZERO in 2024 - the 2024 column was
+    #    not delivered. Idaho did hold early voting in 2024, so do not read the
+    #    2024 zero as "Idaho stopped early voting".
+    #  * ID drops 4.4% (2024) / 2.2% (2022) of rows to a NULL senate district while
+    #    the house district is fine, even though Idaho's senate and house share one
+    #    district number. Those rows are missing from the senate rollup only.
+    #  * WY 2022 IS EFFECTIVELY REQUEST-ONLY: 57,634 requests against 62 returns and
+    #    zero early votes. 2024 is healthy (37,563 / 34,499 / 81,211), so this is a
+    #    2022-specific vendor gap, not how Wyoming votes.
+    "MT": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
+    "ID": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
+    "WY": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
     # CT / NY on the national fallback - no exchange file for either. Coverage
     # CT 85.3% / 90.2%, NY 87.6% / 88.3% for 2022 / 2024. Neither is in
     # ACTIVE_STATES and neither has 2026 feed rows. CT 2022 has no early-vote

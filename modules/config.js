@@ -42,7 +42,7 @@ export const HISTORY_ELECTION_DAYS = {
 // partial redraw belongs in HISTORY_STALE_DISTRICTS below, which keeps the
 // untouched districts readable.
 export const HISTORY_STALE_LINES = {
-  2022: ["VA", "WI", "NC"],
+  2022: ["VA", "WI", "NC", "MT"],
 };
 
 // Partial redraws: only the listed districts are N/A, the rest keep real counts.
@@ -192,6 +192,15 @@ export const LEG_REDISTRICTING_NOTES = {
   // again in 2026, so 2024 ABEV is comparable and 2022 is not. The state
   // constitution allows only one legislative redraw per census, so the Oct 2025
   // mid-decade redistricting was congressional-only and left these untouched.
+  // Montana's redistricting commission did not deliver its post-2020-census
+  // legislative maps until 2023-02-22, too late for that cycle, so the 2022
+  // election ran on the OLD (2013) districts and 2024 was the first vote on the
+  // current lines. District NUMBERS survived - 100 house, 50 senate in both - so
+  // nothing about a 2022 Montana row looks wrong; it is simply a different map.
+  "30": {
+    missingYear: 2022,
+    note: "Montana's 2022 election ran on the pre-2020-census districts - the current maps were not adopted until February 2023 and were first used in 2024.",
+  },
   "37": {
     missingYear: 2022,
     note: "North Carolina redrew its state legislative maps in October 2023 - data from 2022 is not applicable to the 2026 election.",
@@ -250,6 +259,12 @@ export const STATE_DATA_NOTES = {
     years: [2022], stats: ["ev"],
     text: "Connecticut had no in-person early voting until 2024, so its 2022 Early Vote total is correctly zero rather than missing.",
   }],
+  "16": [
+    { years: [2024], stats: ["ev"],
+      text: "Idaho's 2024 early-vote column was never delivered, so it reads zero. Idaho did hold early voting in 2024 - its 2022 file carries 51,459 early votes - so this is a gap in the data, not a change in Idaho law." },
+    { chambers: ["senate"],
+      text: "Idaho's feed leaves the senate district blank on 4.4% of 2024 rows and 2.2% of 2022 rows, even though Idaho's senate and house share one district number. Those voters are missing from the senate rollup but present in the house and statewide totals." },
+  ],
   "17": [{
     years: [2022], chambers: ["senate"],
     text: "Illinois' 2022 feed has a corrupt SenateDistrict column. The senate district is rebuilt from the two house districts nested inside it, which holds for 100% of Illinois rows.",
@@ -266,6 +281,10 @@ export const STATE_DATA_NOTES = {
   }],
   "25": [{
     text: "Massachusetts is deliberately not loaded. It has no 2022 rows at all, and its feed's district columns are internal codes (0-337) rather than district numbers, so nothing joins.",
+  }],
+  "30": [{
+    stats: ["ev"],
+    text: "Montana's feed carries no early-vote rows in either year, so Early Vote reads zero. Unlike Tennessee or Oregon this is not a rule of the state - Montana does allow in-person absentee voting from 30 days out - the votes simply are not in the data.",
   }],
   "36": [{
     text: "New York's Assembly plan was replaced for 2024 and the Senate lines moved with it, so the affected districts read N/A for 2022. Whether the 2024 lines carry into 2026 is unverified - New York has no 2026 feed rows yet.",
@@ -301,6 +320,11 @@ export const STATE_DATA_NOTES = {
     years: [2022, 2024], stats: ["requested"],
     text: "Texas carries no request dates in either historical year, so its Requested view is zero for 2022 and 2024. Returned and Early Vote are unaffected.",
   }],
+  "56": [
+    { years: [2022], stats: ["returned", "ev"],
+      text: "Wyoming's 2022 file is effectively request-only: 57,634 requests against just 62 returns and no early votes. 2024 is healthy by comparison (37,563 / 34,499 / 81,211), so this is a gap specific to 2022, not how Wyoming votes." },
+    { text: "Wyoming matches the national model at 78-82%, the lowest of any backfilled state (most run 88-98%). Unmatched voters fall to Swing, so Wyoming's Swing bucket is inflated relative to other states and its GOP/Dem margin is correspondingly damped." },
+  ],
   "51": [{
     years: [2026],
     text: "Virginia's 2026 numbers come from the April referendum, which is being used as test data. They are not the November general election.",

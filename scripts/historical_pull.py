@@ -107,6 +107,7 @@ CHAMBER_DISTRICT_CAPS = {
     # seats are the senate and there is no house chamber to roll up.
     "ND": (47, 47), "SD": (35, 35), "NE": (0, 49),
     "IN": (100, 50), "KY": (100, 38), "TN": (99, 33),
+    "MT": (100, 50), "ID": (35, 35), "WY": (62, 31),
 }
 
 # Maryland's 18 subdivided legislative districts - the ones that elect delegates
