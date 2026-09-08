@@ -102,13 +102,18 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
              [RSLC TX Strong Democrat Supporters],
              [RSLC TX Soft Democrat Supporters]);
 
--- Iowa scores/audiences
+-- Iowa scores/audiences. Repointed 2026-09-08 from dbo.ia_scores_audiences_20260731
+-- to the V2 refresh in the vs schema, which is what STATE_MODELS["IA"] reads. The V2
+-- move happened on 2026-09-05 without this file being updated, so IA had been running
+-- a full scan of 2.15M rows against a stale index on the 354k-row V1 table. V2 buckets
+-- on the universe ladder (1-2 / 8-9), not the framework_* flags, so that is what the
+-- index INCLUDEs. The orphaned V1 index is dropped in the retired section at the end.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes
                WHERE name = 'IX_dtregid_IA'
-                 AND object_id = OBJECT_ID('dbo.ia_scores_audiences_20260731'))
+                 AND object_id = OBJECT_ID('vs.IA_scores_audiences_20260731_V2'))
     CREATE NONCLUSTERED INDEX IX_dtregid_IA
-    ON dbo.ia_scores_audiences_20260731 (dt_regid)
-    INCLUDE (framework_lahn, framework_sand);
+    ON vs.IA_scores_audiences_20260731_V2 (dt_regid)
+    INCLUDE (universenumber);
 
 -- Oregon audience flags. Note the uppercase join column in this table.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes
@@ -134,3 +139,35 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
     CREATE NONCLUSTERED INDEX IX_dtregid_AK
     ON vs.ak_scores_audiences_20260721 (dt_regid)
     INCLUDE (framework);
+
+
+-- ---------------------------------------------------------------------------
+-- Retired indexes: tables no longer referenced by STATE_MODELS.
+--
+-- Model tables are never updated in place - a refresh arrives as a brand-new
+-- table - so every model swap leaves the old table's index behind, holding disk
+-- and slowing writes for a table nothing reads. Dropping is safe and cheap: if a
+-- state is ever pointed back at one of these, the create section above rebuilds
+-- the index in seconds. Add a DROP here whenever you repoint a STATE_MODELS
+-- entry, in the same edit that adds the new CREATE.
+--
+-- Dropped 2026-09-08 (740.6 MB reclaimed):
+--   dbo.ia_scores_audiences_20260731        V1, superseded by the vs V2 refresh
+--   dbo.MI_SEN_IE_R1_Exchange_updated_20260507  superseded by RSLC_MI_R2_20260805
+--   dbo.RGA_WI_ExchangeData_20260131        superseded by RSLC_WI_Exchange_20260819
+-- ---------------------------------------------------------------------------
+
+IF EXISTS (SELECT 1 FROM sys.indexes
+           WHERE name = 'IX_dtregid_IA'
+             AND object_id = OBJECT_ID('dbo.ia_scores_audiences_20260731'))
+    DROP INDEX IX_dtregid_IA ON dbo.ia_scores_audiences_20260731;
+
+IF EXISTS (SELECT 1 FROM sys.indexes
+           WHERE name = 'IX_dtregid_MI'
+             AND object_id = OBJECT_ID('dbo.MI_SEN_IE_R1_Exchange_updated_20260507'))
+    DROP INDEX IX_dtregid_MI ON dbo.MI_SEN_IE_R1_Exchange_updated_20260507;
+
+IF EXISTS (SELECT 1 FROM sys.indexes
+           WHERE name = 'IX_dtregid_WI'
+             AND object_id = OBJECT_ID('dbo.RGA_WI_ExchangeData_20260131'))
+    DROP INDEX IX_dtregid_WI ON dbo.RGA_WI_ExchangeData_20260131;

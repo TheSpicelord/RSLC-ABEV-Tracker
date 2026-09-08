@@ -253,6 +253,67 @@ STATE_MODELS = {
         "join_col": "dt_regid",
         "bucket_sql": NATIONAL_BUCKET_SQL,
     },
+    # ND / SD / NE on the national fallback - no exchange file exists for any of
+    # them. Added 2026-09-08 for the 2022/2024 backfill; none is in ACTIVE_STATES
+    # and none has 2026 feed rows yet.
+    #
+    # ND and SD both need MD's subdistrict treatment. Their absentee feeds carry
+    # the plain district number, and LegislativeDistrict is byte-identical to
+    # SenateDistrict, so the House subdistricts have nowhere to live: ND splits
+    # district 4 into 4A/4B (Fort Berthold), SD splits 26 and 28 into A/B halves,
+    # both to protect tribal voting strength. Without hd_sql those voters land on
+    # "004"/"026"/"028", which exist in no chamber file, and 2 ND + 4 SD districts
+    # come out empty. voterfile_2026.StateLegLowerSubDistrict supplies the letter.
+    # Same two safety rules as MD: the DISTRICT still comes from the absentee feed
+    # (correct for the year pulled) and only the LETTER comes from the voter file,
+    # and only where the two agree on the district - a voter who moved since that
+    # election has an unknowable historical subdistrict and gets no house district
+    # rather than a guessed one.
+    "ND": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+        "hd_sql": (
+            "CASE WHEN LTRIM(RTRIM(ISNULL(vf.StateLegLowerSubDistrict, ''))) <> '' "
+            "AND vf.StateLegLowerDistrict = TRY_CONVERT(int, a.LegislativeDistrict) "
+            "THEN RIGHT('0' + CAST(vf.StateLegLowerDistrict AS varchar(2)), 2) "
+            "+ UPPER(LTRIM(RTRIM(vf.StateLegLowerSubDistrict))) "
+            "WHEN TRY_CONVERT(int, a.LegislativeDistrict) IN (4) THEN NULL "
+            "ELSE a.LegislativeDistrict END"
+        ),
+        "extra_join": (
+            "LEFT JOIN dbo.voterfile_2026 vf "
+            "ON vf.RNC_Regid = a.RNC_RegID AND vf.state = 'nd'"
+        ),
+    },
+    "SD": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+        "hd_sql": (
+            "CASE WHEN LTRIM(RTRIM(ISNULL(vf.StateLegLowerSubDistrict, ''))) <> '' "
+            "AND vf.StateLegLowerDistrict = TRY_CONVERT(int, a.LegislativeDistrict) "
+            "THEN RIGHT('0' + CAST(vf.StateLegLowerDistrict AS varchar(2)), 2) "
+            "+ UPPER(LTRIM(RTRIM(vf.StateLegLowerSubDistrict))) "
+            "WHEN TRY_CONVERT(int, a.LegislativeDistrict) IN (26,28) THEN NULL "
+            "ELSE a.LegislativeDistrict END"
+        ),
+        "extra_join": (
+            "LEFT JOIN dbo.voterfile_2026 vf "
+            "ON vf.RNC_Regid = a.RNC_RegID AND vf.state = 'sd'"
+        ),
+    },
+    # Nebraska is unicameral: its 49 seats are the SENATE chamber here, and the
+    # feed's LegislativeDistrict is '0' on every row. That produces no house
+    # rollup and no ne_house.json, which is correct - District Explorer has no
+    # ne_house.json either, and the site shows a "switch to Upper Chamber"
+    # message. historical_pull's "every LEG district is NULL/0" flag is EXPECTED
+    # for NE and is not a defect.
+    "NE": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
     # CT / NY on the national fallback - no exchange file for either. Coverage
     # CT 85.3% / 90.2%, NY 87.6% / 88.3% for 2022 / 2024. Neither is in
     # ACTIVE_STATES and neither has 2026 feed rows. CT 2022 has no early-vote

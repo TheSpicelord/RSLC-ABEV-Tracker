@@ -101,6 +101,11 @@ CHAMBER_DISTRICT_CAPS = {
     "WI": (99, 33), "RI": (75, 38), "IL": (118, 59),
     "WV": (100, 17), "MD": (47, 47), "DE": (41, 21),
     "CT": (151, 36), "NY": (150, 63),
+    # ND and SD cap on the district NUMBER; their lettered house ids (04A, 26B)
+    # are not numeric and bypass the cap, like Alaska's senate. NE's house cap of
+    # 0 rejects every numeric house id on purpose - it is unicameral, so its 49
+    # seats are the senate and there is no house chamber to roll up.
+    "ND": (47, 47), "SD": (35, 35), "NE": (0, 49),
 }
 
 # Maryland's 18 subdivided legislative districts - the ones that elect delegates
