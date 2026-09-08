@@ -314,6 +314,39 @@ STATE_MODELS = {
         "join_col": "dt_regid",
         "bucket_sql": NATIONAL_BUCKET_SQL,
     },
+    # IN / KY / TN on the national fallback - no exchange file for any of them.
+    # Added 2026-09-08 for the backfill; none is in ACTIVE_STATES and none has
+    # 2026 feed rows. District ids are plain and match District Explorer exactly,
+    # so none needs MD/ND/SD-style hd_sql. Three feed quirks to know about:
+    #
+    #  * KY is ABSENT FROM THE 2024 FEED ENTIRELY - General_Absentees_2024 carries
+    #    49 states and Kentucky is not one of them. KY backfills 2022 only, and
+    #    its 2024 columns are missing rather than zero. Nothing to fix here; it is
+    #    a vendor gap. Re-pull KY for 2024 if it ever appears.
+    #  * KY 2022 carries ONE date for mail ballots: RequestDate = ReturnDate on all
+    #    75,118 of them, with zero requests lacking a return. So KY's Requested and
+    #    Returned views are necessarily identical - that is the source data, not a
+    #    double-count. The other 267,916 rows are early votes.
+    #  * TN IS EARLY-VOTE ONLY in both years: RequestDate and ReturnDate are NULL on
+    #    every one of its 2.2M (2024) / 882k (2022) rows. Tennessee has no no-excuse
+    #    absentee, and the feed carries only early in-person, so TN's Requested and
+    #    Returned views are zero BY DESIGN - the mirror image of RI, which is
+    #    request-only. Do not read a TN zero as missing data.
+    "IN": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
+    "KY": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
+    "TN": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
     # CT / NY on the national fallback - no exchange file for either. Coverage
     # CT 85.3% / 90.2%, NY 87.6% / 88.3% for 2022 / 2024. Neither is in
     # ACTIVE_STATES and neither has 2026 feed rows. CT 2022 has no early-vote

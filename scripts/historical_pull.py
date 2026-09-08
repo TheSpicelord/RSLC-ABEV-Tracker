@@ -106,6 +106,7 @@ CHAMBER_DISTRICT_CAPS = {
     # 0 rejects every numeric house id on purpose - it is unicameral, so its 49
     # seats are the senate and there is no house chamber to roll up.
     "ND": (47, 47), "SD": (35, 35), "NE": (0, 49),
+    "IN": (100, 50), "KY": (100, 38), "TN": (99, 33),
 }
 
 # Maryland's 18 subdivided legislative districts - the ones that elect delegates
@@ -399,6 +400,20 @@ def build_year_outputs(year, results, updated):
             }
             path = out_dir / f"{abbr.lower()}_{chamber}.json"
             path.write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
+
+        # A state can be missing from a year's feed entirely - KY is absent from
+        # General_Absentees_2024, which carries 49 states and not Kentucky. Writing
+        # it with all-zero totals would assert that Kentucky had no absentee voting
+        # in 2024, which is false; the data simply isn't there. Leave it out so the
+        # year reads as absent rather than empty. The pop() matters because
+        # states_by_abbr is seeded from the file already on disk: without it, a
+        # re-run would keep a stale zero row forever. Same rule as
+        # daily_update.build_outputs().
+        if not any(statewide[stat][b] for stat in STATS for b in BUCKETS):
+            print(f"  [{abbr}] no rows in the {year} feed - omitted from national/timeline.")
+            states_by_abbr.pop(abbr, None)
+            timeline_out.pop(fips, None)
+            continue
 
         states_by_abbr[abbr] = {
             "state_fips": fips,
