@@ -6,7 +6,20 @@ Interactive map/table tracker of Absentee (AB) and Early Vote (EV) activity for 
 
 - **No build step** — pure ES6 modules, serve from any static host
 - Local dev: serve from the **parent** `Coding Projects` folder (`python -m http.server 8000`), then open `http://localhost:8000/RSLC-ABEV-Tracker/`. Serving from this folder alone works, but the sibling District Explorer data (targets / past leg margins) won't resolve and will fall back to the hosted site.
-- Cache busting: `?v=BUILD_VERSION` on JS/CSS imports in `index.html` and `BUILD_VERSION` in `app.js` — bump both when deploying. ABEV **data** JSON (`fetchJson`) instead busts with a fresh per-page-load token (`withDataBust`), so a normal reload shows the latest daily data push without a hard refresh; shapefiles + District Explorer data stay on `BUILD_VERSION` (large, rarely change)
+- Cache busting: `?v=BUILD_VERSION` in **three** places, all of which must be bumped together — `index.html`'s CSS/JS tags, the `BUILD_VERSION` constant in `app.js`, and **`app.js`'s own `./modules/*.js` import specifiers**
+  - **The module specifiers are the easy one to forget, and forgetting it is fatal, not cosmetic.**
+    `index.html` busts `app.js`, but a bare `import ... from "./modules/config.js"` is a
+    *separate* URL with no version on it, so the browser happily pairs a fresh `app.js`
+    with a cached `modules/*.js`. If that release added a new export, the import fails,
+    `app.js` never parses, and its imports are never even fetched — the page renders
+    blank, with no partial degradation to hint at what happened. That is exactly what
+    `STATE_DATA_NOTES` did on 2026-09-08: the request log showed `index.html`, `style.css`,
+    `app.js`, and then nothing at all.
+  - Diagnosis is quick: if the server log stops after `app.js` and never requests
+    `modules/config.js`, it is this. A hard refresh clears it locally, but shipping the
+    fix requires a **version bump**, because the broken `app.js` is itself cached under
+    the old version and would otherwise keep being served.
+. ABEV **data** JSON (`fetchJson`) instead busts with a fresh per-page-load token (`withDataBust`), so a normal reload shows the latest daily data push without a hard refresh; shapefiles + District Explorer data stay on `BUILD_VERSION` (large, rarely change)
 - Hosted on GitHub Pages from `main` at https://github.com/TheSpicelord/RSLC-ABEV-Tracker
 
 ## The Four Stats
