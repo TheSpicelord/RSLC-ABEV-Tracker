@@ -35,8 +35,123 @@ export const HISTORY_ELECTION_DAYS = {
 // state redrew its lines in between. The columns are still rendered so the
 // years line up across states, but every value reads N/A rather than a count
 // that belongs to a different map.
+//
+// An entry is either a plain abbr ("WI" - both chambers stale that year) or an
+// abbr qualified by chamber ("MI:senate" - that chamber only). Use this list
+// only where a redraw was broad enough that no district survived it intact; a
+// partial redraw belongs in HISTORY_STALE_DISTRICTS below, which keeps the
+// untouched districts readable.
 export const HISTORY_STALE_LINES = {
   2022: ["VA", "WI", "NC"],
+};
+
+// Partial redraws: only the listed districts are N/A, the rest keep real counts.
+// Keyed year -> "ABBR:chamber" -> district ids as they appear in a join key.
+//
+// A redraw almost never touches a whole chamber. Michigan is the case in hand:
+// *Agee v. Benson* struck 13 districts in 2024 and the remedial maps changed
+// those plus the neighbours needed to rebalance them, leaving most of the state
+// on identical lines. Blanking all 110 house seats to protect 14 of them threw
+// away comparable data for 96 districts, which is what this fixes.
+//
+//   House  - 2022 ran on the MICRC's original Hickory plan; the remedial Motown
+//            Sound A1 was used in 2024 and again in 2026. The change is confined
+//            to the contiguous Detroit-area block, districts 1-14, so 2022 is
+//            stale for those and directly comparable for the other 96. 2024
+//            house ABEV needs no entry at all - same lines as 2026.
+// The senate list is the ELECTION WORKBOOK's, not the one enumerated in the
+// tracker's CLAUDE.md shapefile note. The two agree on 12 of 14 and disagree on
+// exactly two: the workbook has SD 4 and not SD 38, CLAUDE.md has SD 38 and not
+// SD 4. The workbook's set is 1-11 plus 13, 23, 24 - a contiguous metro-Detroit
+// block, which is what the Agee v. Benson remedy actually covered - while
+// CLAUDE.md's skips 4 in the middle of that block and reaches instead for 38,
+// the Upper Peninsula, nowhere near it. That reads as a transcription slip in a
+// list written as "1, 2, 3, 5-11, 13, 23, 24, 38" where "1-11, 13, 23, 24" was
+// meant. The workbook also drives the leg_2022 column, so following it keeps the
+// two columns consistent per district; following CLAUDE.md would put a live 2022
+// leg margin beside an N/A 2022 ABEV cell in SD 38 and the reverse in SD 4.
+// Worth confirming against the Crane A1 / Linden geometry when someone has both.
+//   Senate - 2022 and 2024 BOTH ran on Linden: senate terms are four years, so
+//            the seats went 2022 -> 2026 with no 2024 election and the feed
+//            still carried Linden assignments that year. Crane A1 is first used
+//            in 2026 and differs from Linden in 14 of 38 districts, so both past
+//            cycles are stale for exactly those and fine for the other 24.
+//
+// The house list was derived from the voter file rather than assumed: joining
+// the 2022 and 2024 absentee feeds on RNC_RegID and asking how many of a
+// district's voters kept the same district label separates a redraw from
+// ordinary relocation cleanly. Districts 1-14 sit at 0.3-67% retention against a
+// 88-98% band for the rest. District 2 is the one that needs the second test -
+// it retains 88.3%, inside the band, but 51% of the voters it did lose landed in
+// district 1 alone, a boundary shift rather than the thin scatter to neighbours
+// that ordinary movement produces. The senate list comes from the shapefile
+// splice documented in CLAUDE.md; the same voter-file test confirms 2024 senate
+// is still Linden, showing no redraw signal between 2022 and 2024 at all.
+//
+// Statewide totals are NOT affected by any of this - a state's borders don't
+// move when its districts do - so statewide chrono and trend keep every year.
+export const HISTORY_STALE_DISTRICTS = {
+  2022: {
+    "MI:house": ["001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012", "013", "014"],
+    "MI:senate": ["001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "013", "023", "024"],
+    // Georgia's 2021 maps were used in 2022, then redrawn under the Dec 2023
+    // court order in Georgia v. Kemp (Section 2); the new lines were used in
+    // 2024 and again in 2026. Verified both ways against the voter file: 2022 ->
+    // 2024 moves these districts, and 2024 -> 2026 moves nothing at all (median
+    // retention 96.5% house / 97.5% senate, no district under 80%), so 2024 GA
+    // ABEV is directly comparable and needs no entry.
+    "GA:house": [
+      "003", "012", "013", "019", "034", "035", "036", "037", "040", "042",
+      "043", "055", "056", "057", "058", "060", "061", "064", "065", "066",
+      "074", "078", "081", "082", "084", "085", "086", "087", "089", "090",
+      "091", "092", "093", "094", "095", "101", "102", "105", "106", "107",
+      "108", "109", "110", "111", "112", "113", "114", "115", "116", "117",
+      "118", "133", "134", "135", "142", "143", "144", "145", "149", "177"
+    ],
+    "GA:senate": [
+      "002", "006", "010", "015", "017", "025", "028", "030", "033", "035",
+      "038", "039", "041", "042", "043", "044", "053", "055"
+    ],
+    // Alaska's 2021 board map was litigated through the 2022 election (In re 2021
+    // Redistricting Cases); the final map took effect for 2024 and is still in
+    // use for 2026. The changes are concentrated in Anchorage (18-20, 22, 23)
+    // with a smaller pairing change at 3/4 and 7/8. Districts 38 and 40 look
+    // low on retention (73-80%) but are NOT redrawn: they are rural seats with
+    // only 35-38 movers between them, and those movers scatter (11% top
+    // destination) instead of landing in one neighbour, so the low number is
+    // ordinary relocation in a small sample. Senate letters follow from the
+    // house pairing Alaska statute defines - A = HD 1-2, B = 3-4 and so on - so
+    // the affected senate seats are exactly those covering a changed house seat.
+    // New York redrew both chambers after the 2022 maps were litigated: the
+    // Assembly plan was replaced for 2024 (Hoffmann v. IRC) and the Senate lines
+    // moved with it. The change is narrow. Senate 6-9 is the Nassau/Long Island
+    // cluster and unmistakable - 48-84% retention with 46-91% of movers landing
+    // in one neighbour. Assembly 30, 42, 115, 132 fail on retention alone
+    // (56-78%); 34, 39 and 133 sit at 83-89% but send 40-53% of their movers to
+    // a single district, which is the boundary-shift signature rather than the
+    // thin scatter of ordinary relocation.
+    //
+    // The rest of the NYC tail (districts at 82-91% retention with scattered
+    // movers) is deliberately NOT listed. That is the same false-positive mode
+    // Illinois exposed: a dense-city district borders few enough neighbours that
+    // normal movement piles into one of them. Retention is the primary test here
+    // and concentration only promotes a district that is already suspicious.
+    //
+    // Checked 2022 -> 2024 only. NY has no rows in the 2026 feed, so whether the
+    // 2024 lines survive into 2026 is UNVERIFIED - re-run the retention test
+    // when NY data lands.
+    "NY:house": ["030", "034", "039", "042", "115", "132", "133"],
+    "NY:senate": ["006", "007", "008", "009"],
+    "AK:house": [
+      "003", "004", "007", "008", "018", "019", "020", "022", "023"
+    ],
+    "AK:senate": [
+      "00B", "00D", "00I", "00J", "00K", "00L"
+    ],
+  },
+  2024: {
+    "MI:senate": ["001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "013", "023", "024"],
+  },
 };
 
 export const CHAMBER_NAMES_URL = "data/state_chamber_names.json";
@@ -80,6 +195,32 @@ export const LEG_REDISTRICTING_NOTES = {
   "37": {
     missingYear: 2022,
     note: "North Carolina redrew its state legislative maps in October 2023 - data from 2022 is not applicable to the 2026 election.",
+  },
+  // New York: Assembly replaced for 2024 after Hoffmann v. IRC, Senate lines
+  // moved with it. 7 of 150 Assembly and 4 of 63 Senate districts affected.
+  "36": {
+    missingYear: 2022,
+    note: "New York's legislative maps were redrawn after the 2022 election - the replacement lines were used in 2024. ABEV data is shown for the districts whose lines did not move and reads N/A for those that did.",
+  },
+  // Georgia: court-ordered mid-decade redraw, Dec 2023. 60 of 180 house and 18
+  // of 56 senate districts moved; the rest are comparable back to 2022.
+  "13": {
+    missingYear: 2022,
+    note: "Georgia redrew part of its state legislative map under a December 2023 court order - the new lines were used in 2024 and 2026. ABEV data is shown for the districts whose lines did not move and reads N/A for those that did.",
+  },
+  // Alaska: the 2021 board map was litigated through 2022; the final map took
+  // effect in 2024. Senate districts are letters built from house pairs.
+  "02": {
+    missingYear: 2022,
+    note: "Alaska's district lines were still in litigation for the 2022 election and were finalized for 2024. ABEV data is shown for the districts whose lines did not move and reads N/A for those that did.",
+  },
+  // Michigan: see HISTORY_STALE_DISTRICTS above. Only the redrawn districts read
+  // N/A, so this footnote says "some districts" rather than claiming the whole
+  // cycle is unusable. missingYear is the earliest affected year, used only to
+  // stand up an N/A leg-margin column.
+  "26": {
+    missingYear: 2022,
+    note: "Michigan redrew part of its state legislative map after Agee v. Benson - House districts 1-14 changed for 2024, and 14 of 38 Senate districts change for 2026. ABEV data is shown for the districts whose lines did not move and reads N/A for those that did.",
   },
 };
 

@@ -19,6 +19,7 @@ import {
   ELECTION_DAY_OVERRIDES,
   HISTORY_ELECTION_DAYS,
   HISTORY_STALE_LINES,
+  HISTORY_STALE_DISTRICTS,
   HISTORY_YEARS,
   LEG_REDISTRICTING_NOTES,
   NATIONAL_CENTER,
@@ -505,10 +506,41 @@ function historyAvailableForSelectedState() {
 // state redrew its map in between (HISTORY_STALE_LINES) the counts are real but
 // belong to different geography, so the columns render N/A instead and the
 // trend graph doesn't offer the year at all.
-function historyYearAppliesToSelectedState(year) {
+//
+// Staleness is per chamber, not just per state: a redraw can reach one chamber
+// and not the other, or reach them in different cycles (Michigan - see the
+// HISTORY_STALE_LINES comment). An entry matches either the bare abbr, which
+// retires both chambers, or "ABBR:chamber", which retires just that one.
+function historyYearAppliesToSelectedState(year, chamber = state.chamber) {
   const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
   if (!abbr) return true;
-  return !(HISTORY_STALE_LINES[year] || []).includes(abbr);
+  const stale = HISTORY_STALE_LINES[year] || [];
+  return !stale.includes(abbr) && !stale.includes(`${abbr}:${chamber}`);
+}
+
+// Partial redraws (HISTORY_STALE_DISTRICTS): the chamber as a whole is fine, but
+// individual districts were redrawn and their past counts describe different
+// ground. Only those cells read N/A; the untouched districts keep real numbers.
+// A null joinKey is a statewide scope, which a redraw cannot invalidate - the
+// state's own borders didn't move - so it always applies.
+function historyYearAppliesToDistrict(year, joinKey, chamber = state.chamber) {
+  if (!historyYearAppliesToSelectedState(year, chamber)) return false;
+  if (!joinKey) return true;
+  const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
+  if (!abbr) return true;
+  const districts = (HISTORY_STALE_DISTRICTS[year] || {})[`${abbr}:${chamber}`];
+  if (!districts) return true;
+  return !districts.includes(String(joinKey).split("|")[1] || "");
+}
+
+// Does this state have any partial redraw for a year on screen? Drives the
+// footnote, since the columns themselves are not flagged N/A wholesale.
+function historyHasStaleDistricts() {
+  const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
+  if (!abbr) return false;
+  return HISTORY_YEARS.some((year) =>
+    Boolean((HISTORY_STALE_DISTRICTS[year] || {})[`${abbr}:${state.chamber}`]),
+  );
 }
 
 // Past-year timeline for whatever a chrono table is showing: a selected
@@ -697,7 +729,13 @@ function legRedistrictingNote() {
   if (!note) return "";
   if (legMarginColumnsForChamber().some((col) => !col.available)) return note.note;
   const showingHistory = historyModeFor() !== "none" && historyAvailableForSelectedState();
-  return showingHistory && !historyYearAppliesToSelectedState(note.missingYear) ? note.note : "";
+  if (!showingHistory) return "";
+  // Any stale year for the chamber on screen earns the footnote. Checking every
+  // year rather than note.missingYear keeps this right where the two chambers
+  // lost different cycles (MI senate: 2022 and 2024; MI house: 2022 only).
+  return HISTORY_YEARS.some((year) => !historyYearAppliesToSelectedState(year)) || historyHasStaleDistricts()
+    ? note.note
+    : "";
 }
 
 // `frame` adds the vline classes that bracket the column group, matching how
@@ -713,7 +751,12 @@ function legMarginCellsHtml(joinKey, columns, { frame = false } = {}) {
         // the others divide the leg years (e.g. 2022 | 2024).
         extra += " abev-vline-right";
       }
-      if (!col.available) {
+      // Whole column unavailable, or this one district was redrawn that year -
+      // the second case is a partial redraw, where the workbook simply carries no
+      // leg margin for the affected seats. Rendering those as N/A rather than an
+      // empty cell matches the past-cycle ABEV column beside them, which is
+      // driven from the same per-district lists.
+      if (!col.available || !historyYearAppliesToDistrict(col.year, joinKey)) {
         return `<td class="margin-cell margin-cell-na${extra}" title="Districts redrawn after this election">N/A</td>`;
       }
       return marginCellHtml(legMarginRPositive(deRec, col.year), extra);
@@ -2567,7 +2610,9 @@ function viewColumnBodyCellsHtml(cols, rec, joinKey = null) {
     .map((col, idx) => {
       if (col.type === "gap") return '<td class="abev-gap-cell"></td>';
       const vline = columnVlineClass(cols, idx);
-      if (col.na) return historyNaCellHtml(col, vline);
+      if (col.na || (col.year && !historyYearAppliesToDistrict(col.year, joinKey))) {
+        return historyNaCellHtml(col, vline);
+      }
       const totals = col.year
         ? (joinKey ? historyTotals(joinKey, col.year, col.key) : null)
         : (rec ? statTotals(rec, col.key) : null);
@@ -2680,7 +2725,7 @@ function districtRowsForSelectedState() {
     const histMatch = key.match(/^hist(\d{4})(_margin)?$/);
     if (histMatch) {
       // An N/A column sorts like any other blank rather than by its hidden data.
-      if (!historyYearAppliesToSelectedState(Number(histMatch[1]))) return Number.NEGATIVE_INFINITY;
+      if (!historyYearAppliesToDistrict(Number(histMatch[1]), row.joinKey)) return Number.NEGATIVE_INFINITY;
       const totals = historyTotals(row.joinKey, Number(histMatch[1]), VIEW_MAP_STAT[state.abevView] || "voted");
       if (!totals) return Number.NEGATIVE_INFINITY;
       if (!histMatch[2]) return totals.total;
@@ -2956,7 +3001,9 @@ function chronoTableHtml(rows, { cumulative = false, joinKey = null } = {}) {
         .map((col, idx) => {
           if (col.type === "gap") return '<td class="abev-gap-cell"></td>';
           const vline = columnVlineClass(cols, idx);
-          if (col.na) return historyNaCellHtml(col, vline);
+          if (col.na || (col.year && !historyYearAppliesToDistrict(col.year, joinKey))) {
+            return historyNaCellHtml(col, vline);
+          }
           const totals = col.year
             ? chronoHistoryTotals(row, col.year, col.key, { cumulative, joinKey })
             : chronoStatTotals(row.stats, col.key);
@@ -3131,7 +3178,8 @@ function trendCurrentYear() {
 // no line to draw either.
 function trendYearsForScope(ctx) {
   const years = HISTORY_YEARS.filter(
-    (year) => historyYearAppliesToSelectedState(year) && !!historyTimelineForScope(year, ctx.joinKey)
+    (year) =>
+      historyYearAppliesToDistrict(year, ctx.joinKey) && !!historyTimelineForScope(year, ctx.joinKey)
   );
   years.push(trendCurrentYear());
   return years;

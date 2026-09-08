@@ -90,6 +90,29 @@ def alaska_senate_from_house(hd_id):
     return "00" + chr(ord("A") + (n - 1) // 2)
 
 
+def illinois_senate_from_house(hd_id):
+    """Illinois nests exactly two house districts per senate district, so
+    SD = ceil(HD / 2). This is constitutional, not conventional: Art. IV s.3
+    requires every senate district be divided into two representative
+    districts, and the feed bears it out - nesting holds for 100.0% of IL rows
+    in both 2024 and 2026.
+
+    It holds for only 93.6% of 2022 rows. The 2022 SenateDistrict column is
+    simply wrong for ~109k voters, concentrated in SD 25 (18,757 rows) and
+    SD 42 (14,090). That is a vendor data defect, NOT a redraw: Illinois used
+    one legislative map for the whole decade, and the 2022 LegislativeDistrict
+    column agrees with 2024 everywhere (no district retains under 91%). So the
+    house column is trustworthy and the senate column is recoverable from it,
+    which is what `senate_always_derived` does on the historical path.
+    """
+    if not hd_id.isdigit():
+        return ""
+    n = int(hd_id)
+    if not 1 <= n <= 118:
+        return ""
+    return str((n + 1) // 2).zfill(3)
+
+
 STATE_MODELS = {
     "VA": {
         "model_table": "dbo.RSLC_VA_R2_Exchange_20250804",
@@ -160,6 +183,87 @@ STATE_MODELS = {
     # every senate district), and lands it at R+3.9 against an actual Trump +3.2.
     # If a real RSLC NC exchange file ever arrives, swap it in here and index it.
     "NC": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
+    # Illinois runs on the national fallback, like RI, NC and IA - there is no
+    # RSLC IL exchange file on the server. The national model matches 90.1% of
+    # the 2022 IL absentee feed, in line with the 88-98% it gets everywhere else,
+    # and puts that electorate at R-42.1, which is unremarkable for an Illinois
+    # absentee universe. Wired 2026-09-05 so the 2022/2024 backfill can run;
+    # NOT added to ACTIVE_STATES, so this publishes nothing for 2026 until
+    # someone decides to activate it (the feed already carries 444,380 IL rows).
+    "IL": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+        # Always recompute the senate district from the house one - see
+        # illinois_senate_from_house() for why the 2022 column cannot be trusted.
+        "derive_senate": illinois_senate_from_house,
+        "senate_always_derived": True,
+    },
+    # WV / MD / DE run on the national fallback - no RSLC exchange file exists
+    # for any of them. Coverage against the historical feeds is in line with
+    # every other fallback state: WV 91.0% / 96.3%, MD 91.7% / 95.9%,
+    # DE 90.2% / 95.1% for 2022 / 2024. Added 2026-09-05 for the backfill; none
+    # is in ACTIVE_STATES, and none has 2026 feed rows yet.
+    "WV": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
+    # Maryland: see MD_HOUSE_NOT_A_HOUSE_UNIT in historical_pull.py. The feed's
+    # LegislativeDistrict is the *legislative* district (1-47) and is literally
+    # the same column as SenateDistrict, so it cannot express Maryland's 71
+    # house units - 29 whole districts electing 3 delegates at large, plus 42
+    # lettered subdistricts (01A, 27C ...). The senate rollup is exact.
+    "MD": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+        # Rebuild the house district from dbo.voterfile_2026, which is the only
+        # place the subdistrict letter exists. Two rules make this safe:
+        #  1. The DISTRICT still comes from the absentee feed, which is correct
+        #     for the year being pulled. Only the LETTER comes from the voter
+        #     file, and only when the voter file agrees on the district - if it
+        #     disagrees the voter moved after that election and their historical
+        #     subdistrict is unknowable, so they get no house district at all.
+        #  2. An undivided district keeps its plain 3-digit id.
+        # Produces DE-style ids: "01A", "27C", "003". Attribution in the 18
+        # subdivided districts is 84.8% (2022) / 92.1% (2024); the other 29 are
+        # complete. StateLegLowerDistrict_Proper is empty for MD, and the
+        # *_PreviousElection columns add ~0.2pp, so neither is used.
+        "hd_sql": (
+            "CASE WHEN LTRIM(RTRIM(ISNULL(vf.StateLegLowerSubDistrict, ''))) <> '' "
+            "AND vf.StateLegLowerDistrict = TRY_CONVERT(int, a.LegislativeDistrict) "
+            "THEN RIGHT('0' + CAST(vf.StateLegLowerDistrict AS varchar(2)), 2) "
+            "+ UPPER(LTRIM(RTRIM(vf.StateLegLowerSubDistrict))) "
+            "WHEN TRY_CONVERT(int, a.LegislativeDistrict) IN "
+            "(1,2,7,9,11,12,27,29,30,33,34,35,37,38,42,43,44,47) THEN NULL "
+            "ELSE a.LegislativeDistrict END"
+        ),
+        "extra_join": (
+            "LEFT JOIN dbo.voterfile_2026 vf "
+            "ON vf.RNC_Regid = a.RNC_RegID AND vf.state = 'md'"
+        ),
+    },
+    "DE": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
+    # CT / NY on the national fallback - no exchange file for either. Coverage
+    # CT 85.3% / 90.2%, NY 87.6% / 88.3% for 2022 / 2024. Neither is in
+    # ACTIVE_STATES and neither has 2026 feed rows. CT 2022 has no early-vote
+    # rows at all, correctly: Connecticut had no in-person early voting until
+    # 2024, so its 2022 EV view is zero by law, not by omission.
+    "CT": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
+    "NY": {
         "model_table": NATIONAL_MODEL_TABLE,
         "join_col": "dt_regid",
         "bucket_sql": NATIONAL_BUCKET_SQL,
@@ -235,13 +339,32 @@ STATE_MODELS = {
             "ELSE 'toss' END"
         ),
     },
+    # Iowa: the V2 refresh (2026-09-05) is a real full-file model - 2,148,056 rows,
+    # one per dt_regid, against roughly 2.2M registered Iowans - and it replaced both
+    # the V1 candidate file and the national fallback that V1's failure forced.
+    # V1 (dbo.ia_scores_audiences_20260731) was a *persuasion subset*: 354,382 rows,
+    # 15% feed coverage, ~84% of absentee voters dumped into toss. V2 matches 91.3%
+    # of the 2022 absentee feed and 96.1% of 2024, edging the national fallback
+    # (90.8% / 95.6%) while being purpose-built for the 2026 Iowa race.
+    #
+    # Bucket on the 9-universe ladder (1-2 rep, 8-9 dem), NOT on the framework_*
+    # flags that sit beside it, even though V2 carries both. The flags are
+    # asymmetric: framework_lahn covers universe 1 alone (Lahn Base) while
+    # framework_sand covers 7-9 (Available Democrats + Democrat Targets + Sand
+    # Base), so bucketing on them silently drops universe 2 "Republican Targets"
+    # - 262,135 voters, ~40k of the 2024 absentee feed - into toss while keeping
+    # the mirror-image Dem universe. That is worth 7.9 points of margin in 2024
+    # (R-5.8 on universes vs R-13.7 on flags). The ladder is the same shape as
+    # GA's, with mirrored names (1 Lahn Base / 2 Republican Targets ... 8 Democrat
+    # Targets / 9 Sand Base), so it gets the same 1-2 / 8-9 split. Universes 3-7
+    # (Trump 2024 Overperform, Message Targets, Core Persuasion, Vulnerable
+    # Middle, Available Democrats) and unmatched -> toss.
     "IA": {
-        # framework_lahn / framework_sand are the two candidate audiences (int flags).
-        "model_table": "dbo.ia_scores_audiences_20260731",
+        "model_table": "vs.IA_scores_audiences_20260731_V2",
         "join_col": "dt_regid",
         "bucket_sql": (
-            "CASE WHEN m.framework_lahn = 1 THEN 'rep' "
-            "WHEN m.framework_sand = 1 THEN 'dem' "
+            "CASE WHEN m.universenumber IN (1, 2) THEN 'rep' "
+            "WHEN m.universenumber IN (8, 9) THEN 'dem' "
             "ELSE 'toss' END"
         ),
     },
@@ -360,10 +483,17 @@ def state_query(model):
     the next primary bolt-on, which is what the MI and AK ones used."""
     table = model.get("abev_table", ABEV_TABLE)
     extra_where = model.get("extra_where", "")
+    # hd_sql / extra_join let a state rebuild its house district from somewhere
+    # other than the feed column. Only MD uses them today (subdistrict letters
+    # from the voter file); everyone else gets the plain feed column. Kept in
+    # step with historical_pull.historical_query so a state that activates
+    # behaves the same way in 2026 as it does in the backfill.
+    hd_sql = model.get("hd_sql", "a.LegislativeDistrict")
+    extra_join = model.get("extra_join", "")
     return f"""
 WITH scored AS (
     SELECT
-        a.LegislativeDistrict AS hd,
+        {hd_sql} AS hd,
         a.SenateDistrict AS sd,
         a.RequestDate,
         a.ReturnDate,
@@ -372,6 +502,7 @@ WITH scored AS (
     FROM {table} a
     LEFT JOIN {model['model_table']} m
         ON m.{model['join_col']} = CONVERT(varchar(36), a.RNC_RegID)
+    {extra_join}
     WHERE a.State = ? {extra_where}
 ),
 events AS (

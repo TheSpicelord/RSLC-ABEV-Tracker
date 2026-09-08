@@ -88,6 +88,52 @@ YEAR_CONFIG = {
 }
 
 
+# Real district-number ceilings per chamber. The historical feeds carry sentinel
+# values that the 2026 feed does not - GA alone contributes "000", "999",
+# "99999" and a senate "099" - and normalize_district_id() has no idea they are
+# not districts, so without this GA backfills 183 house and 59 senate districts
+# instead of 180 and 56, inventing seats that never existed. Numeric ids outside
+# the range are dropped; lettered ids (Alaska's senate) are left alone.
+CHAMBER_DISTRICT_CAPS = {
+    "AK": (40, 20), "AZ": (30, 30), "GA": (180, 56), "IA": (100, 50),
+    "MI": (110, 38), "NC": (120, 50), "NJ": (40, 40), "NV": (42, 21),
+    "OR": (60, 30), "PA": (203, 50), "TX": (150, 31), "VA": (100, 40),
+    "WI": (99, 33), "RI": (75, 38), "IL": (118, 59),
+    "WV": (100, 17), "MD": (47, 47), "DE": (41, 21),
+    "CT": (151, 36), "NY": (150, 63),
+}
+
+# Maryland's 18 subdivided legislative districts - the ones that elect delegates
+# from lettered subdistricts (01A, 27C ...) rather than at large. Kept here as
+# the reference list; the runtime rule now lives in MD's `hd_sql` in
+# daily_update.STATE_MODELS, which rebuilds the house id from dbo.voterfile_2026.
+#
+# Before 2026-09-06 these 18 were simply dropped, because the absentee feed has
+# no subdistrict column - its LegislativeDistrict is the plain 1-47 district and
+# is byte-identical to SenateDistrict - so md_house carried only 29 districts.
+# voterfile_2026.StateLegLowerSubDistrict supplies the missing letter, taking
+# md_house to the full 71 units.
+MD_SUBDIVIDED_HOUSE_DISTRICTS = {
+    "001", "002", "007", "009", "011", "012", "027", "029", "030",
+    "033", "034", "035", "037", "038", "042", "043", "044", "047",
+}
+# Fallback for a state with no entry: keep anything that could plausibly be a
+# district number, drop the obvious sentinels.
+DEFAULT_DISTRICT_CAP = 400
+
+
+def valid_district(district_id, abbr, chamber_index):
+    """chamber_index: 0 house, 1 senate. Non-numeric ids always pass."""
+    if not district_id:
+        return False
+    if not district_id.isdigit():
+        return True
+    value = int(district_id)
+    caps = CHAMBER_DISTRICT_CAPS.get(abbr)
+    cap = caps[chamber_index] if caps else DEFAULT_DISTRICT_CAP
+    return 1 <= value <= cap
+
+
 def table_for_year(year):
     return f"dbo.General_Absentees_{year}"
 
@@ -100,10 +146,12 @@ def historical_query(table, model, has_election_type_filter):
     summary counts leave the server.
     """
     filter_sql = " AND a.ElectionType = ?" if has_election_type_filter else ""
+    hd_sql = model.get("hd_sql", "a.LegislativeDistrict")
+    extra_join = model.get("extra_join", "")
     return f"""
 WITH scored AS (
     SELECT
-        a.LegislativeDistrict AS hd,
+        {hd_sql} AS hd,
         a.SenateDistrict AS sd,
         a.RequestDate,
         a.ReturnDate,
@@ -112,6 +160,7 @@ WITH scored AS (
     FROM {table} a
     LEFT JOIN {model['model_table']} m
         ON m.{model['join_col']} = CONVERT(varchar(36), a.RNC_RegID)
+    {extra_join}
     WHERE a.State = ?{filter_sql}
 ),
 events AS (
@@ -244,6 +293,27 @@ def pull_state_year(conn, table, abbr, model, ycfg):
         n = int(n or 0)
         hd_id = normalize_district_id(hd)
         sd_id = normalize_district_id(sd)
+        # Alaska's feed carries no SenateDistrict at all - in 2024 it is NULL on
+        # every one of 160,181 rows - so without this the state backfills 40
+        # house districts and an empty senate. daily_update.py has always done
+        # this; the historical path did not, which is the bug it papered over.
+        derive_senate = model.get("derive_senate")
+        # AK has no senate column at all (fill it); IL has one that is wrong in
+        # 2022 (replace it outright - senate_always_derived). Where the state's
+        # own senate column is declared untrustworthy, a row with no usable
+        # house district gets NO senate district either: falling back to the
+        # column we just rejected would quietly readmit the bad values. That is
+        # only ~43 of 852,828 requests in IL 2022, but it is the difference
+        # between "senate always equals its house pair" holding exactly and
+        # holding approximately, and the exact version is checkable.
+        if derive_senate and model.get("senate_always_derived"):
+            sd_id = derive_senate(hd_id) if hd_id else ""
+        elif derive_senate and hd_id and not sd_id:
+            sd_id = derive_senate(hd_id)
+        if not valid_district(hd_id, abbr, 0):
+            hd_id = ""
+        if not valid_district(sd_id, abbr, 1):
+            sd_id = ""
         date_key = timeline_key(stat, event_date, cycle_start, election_day)
         if hd_id:
             house[hd_id][stat][bucket] += n
