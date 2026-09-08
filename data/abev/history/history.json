@@ -1,5 +1,5 @@
 {
-  "updated": "2026-09-06",
+  "updated": "2026-09-08",
   "years": {
     "2022": {
       "house": [
@@ -9,6 +9,7 @@
         "data/abev/history/2022/ga_house.json",
         "data/abev/history/2022/ia_house.json",
         "data/abev/history/2022/il_house.json",
+        "data/abev/history/2022/ks_house.json",
         "data/abev/history/2022/md_house.json",
         "data/abev/history/2022/mi_house.json",
         "data/abev/history/2022/nc_house.json",
@@ -29,6 +30,7 @@
         "data/abev/history/2022/ga_senate.json",
         "data/abev/history/2022/ia_senate.json",
         "data/abev/history/2022/il_senate.json",
+        "data/abev/history/2022/ks_senate.json",
         "data/abev/history/2022/md_senate.json",
         "data/abev/history/2022/mi_senate.json",
         "data/abev/history/2022/nc_senate.json",
@@ -53,6 +55,7 @@
         "data/abev/history/2024/ga_house.json",
         "data/abev/history/2024/ia_house.json",
         "data/abev/history/2024/il_house.json",
+        "data/abev/history/2024/ks_house.json",
         "data/abev/history/2024/md_house.json",
         "data/abev/history/2024/mi_house.json",
         "data/abev/history/2024/nc_house.json",
@@ -73,6 +76,7 @@
         "data/abev/history/2024/ga_senate.json",
         "data/abev/history/2024/ia_senate.json",
         "data/abev/history/2024/il_senate.json",
+        "data/abev/history/2024/ks_senate.json",
         "data/abev/history/2024/md_senate.json",
         "data/abev/history/2024/mi_senate.json",
         "data/abev/history/2024/nc_senate.json",

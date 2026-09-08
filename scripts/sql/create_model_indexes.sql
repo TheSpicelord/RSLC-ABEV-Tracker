@@ -51,6 +51,14 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
     ON dbo.RSLC_MI_R2_Exchange_20260805 (dt_regid)
     INCLUDE (Framework, universenumber);
 
+-- Kansas RAGA exchange model
+IF NOT EXISTS (SELECT 1 FROM sys.indexes
+               WHERE name = 'IX_dtregid_KS'
+                 AND object_id = OBJECT_ID('dbo.RAGA_KS_Exchange_20260708'))
+    CREATE NONCLUSTERED INDEX IX_dtregid_KS
+    ON dbo.RAGA_KS_Exchange_20260708 (dt_regid)
+    INCLUDE (universenumber);
+
 -- Nevada governor IE model
 IF NOT EXISTS (SELECT 1 FROM sys.indexes
                WHERE name = 'IX_dtregid_NV'

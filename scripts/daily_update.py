@@ -326,6 +326,22 @@ STATE_MODELS = {
             "ELSE 'toss' END"
         ),
     },
+    "KS": {
+        # RAGA Kansas model, 9 universes (1 Kobach Base .. 9 Mann Base). The bases are
+        # asymmetric as specified by the model's owner: 1-2 GOP against 7-9 Dem, so
+        # universe 7 "Available Democrats" counts as Dem while its mirror, universe 3
+        # "Trump 2024 Overperform", counts as neither. Worth ~1.6 points of margin toward
+        # the Dem side versus a symmetric split -- deliberate, not a typo.
+        # Shared with District Explorer's MODELS["KS"], which replaced a dropped-in
+        # workbook with this table on 2026-09-08.
+        "model_table": "dbo.RAGA_KS_Exchange_20260708",
+        "join_col": "dt_regid",
+        "bucket_sql": (
+            "CASE WHEN m.universenumber IN (1, 2) THEN 'rep' "
+            "WHEN m.universenumber IN (7, 8, 9) THEN 'dem' "
+            "ELSE 'toss' END"
+        ),
+    },
     "TX": {
         # Audience flags rather than universes, and they are varchar '1'/'0' — an
         # unquoted = 1 comparison would fail to match anything.
@@ -382,7 +398,7 @@ STATE_MODELS = {
     },
 }
 
-ACTIVE_STATES = ["VA", "WI", "AK", "RI", "PA", "NJ", "GA", "NC"]
+ACTIVE_STATES = ["VA", "WI", "AK", "RI", "PA", "NJ", "GA", "NC", "KS"]
 # Every state in STATE_MODELS is wired and indexed; ACTIVE_STATES is the separate
 # question of whether the AB feed actually carries it yet. A state needs BOTH a
 # model and rows in dbo.General_Absentees_2026 before it belongs here.
