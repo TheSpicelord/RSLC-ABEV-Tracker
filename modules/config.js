@@ -148,6 +148,38 @@ export const HISTORY_STALE_DISTRICTS = {
     "AK:senate": [
       "00B", "00D", "00I", "00J", "00K", "00L"
     ],
+    // Washington's 2021 commission map was struck under the VRA in Soto Palmer v.
+    // Hobbs; the court adopted Remedial Map 3B on 2024-03-15, effective 2024-03-28,
+    // and it is still in use for 2026. Washington's senate and house share one set
+    // of 49 boundaries - each district elects one senator and two representatives -
+    // so the two lists are IDENTICAL by construction, and the retention test
+    // independently produced the same 14 districts for both chambers.
+    //
+    // Measured 2022 -> 2024 on voters present in both feeds. Retention runs from
+    // 19.3% (district 14) to 91.8%, with 37-94% of movers landing on a single
+    // destination. The Yakima Valley remedy itself is the 14/15 pair, which
+    // essentially swapped populations: 14 kept 19.3% and sent 77.7% of its voters
+    // to 15.
+    //
+    // Six districts fall below 90% retention but are DELIBERATELY EXCLUDED because
+    // their movers scatter (top destination only 11-22%): 11, 36, 37, 43, 46, 48 -
+    // King and Pierce County churn, the same dense-urban false positive Illinois
+    // exposed. Districts 40 and 42 are also excluded despite exchanging voters with
+    // each other at 40-46% concentration: they are Whatcom/Skagit, and neither
+    // county appears in the court's list of affected counties (Adams, Benton,
+    // Chelan, Clark, Douglas, Franklin, Grant, King, Klickitat, Pierce, Thurston,
+    // Yakima). Every one of the 14 kept below maps to a county on that list.
+    //
+    // Contemporary reporting said "13 legislative districts"; the measurement says
+    // 14. The extra seat is defensible either way - district 7 is the weakest case
+    // on county grounds (Spokane/Okanogan) but the strongest on signal, sending
+    // 71.9% of its movers to district 13 (Grant, which IS on the list).
+    "WA:house": [
+      "002", "005", "007", "008", "009", "012", "013", "014", "015", "016", "017", "020", "031", "049"
+    ],
+    "WA:senate": [
+      "002", "005", "007", "008", "009", "012", "013", "014", "015", "016", "017", "020", "031", "049"
+    ],
   },
   2024: {
     "MI:senate": ["001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "013", "023", "024"],
@@ -255,6 +287,12 @@ export const STATE_DATA_NOTES = {
     chambers: ["senate"],
     text: "Alaska's feed carries no senate district, so each senate district is derived from its two house districts (A = HD 1-2, B = 3-4, and so on).",
   }],
+  "06": [
+    { chambers: ["senate"],
+      text: "California's feed leaves the senate district blank on about 1.2% of rows (1.3% in 2022). Those voters are missing from the senate rollup but are present in the house and statewide totals." },
+    { years: [2022],
+      text: "California matches the national model at only 82.5% in 2022, against 90.4% in 2024. Unmatched voters fall to Swing, so 2022's Swing bucket is inflated by roughly 3.8 million voters and its GOP/Dem margin is correspondingly damped. Compare the two years with that in mind." },
+  ],
   "09": [{
     years: [2022], stats: ["ev"],
     text: "Connecticut had no in-person early voting until 2024, so its 2022 Early Vote total is correctly zero rather than missing.",
@@ -319,6 +357,10 @@ export const STATE_DATA_NOTES = {
   "48": [{
     years: [2022, 2024], stats: ["requested"],
     text: "Texas carries no request dates in either historical year, so its Requested view is zero for 2022 and 2024. Returned and Early Vote are unaffected.",
+  }],
+  "53": [{
+    stats: ["ev"],
+    text: "Washington mails every voter a ballot, so its Early Vote total is a rounding error by design - 13,991 rows out of 5.0 million in 2024, about 0.3%. That is real, not a gap in the data.",
   }],
   "56": [
     { years: [2022],

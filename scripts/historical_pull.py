@@ -108,6 +108,7 @@ CHAMBER_DISTRICT_CAPS = {
     "ND": (47, 47), "SD": (35, 35), "NE": (0, 49),
     "IN": (100, 50), "KY": (100, 38), "TN": (99, 33),
     "MT": (100, 50), "ID": (35, 35), "WY": (62, 31),
+    "CA": (80, 40), "WA": (49, 49),
 }
 
 # Maryland's 18 subdivided legislative districts - the ones that elect delegates

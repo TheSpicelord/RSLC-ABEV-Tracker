@@ -381,6 +381,28 @@ STATE_MODELS = {
         "join_col": "dt_regid",
         "bucket_sql": NATIONAL_BUCKET_SQL,
     },
+    # CA / WA on the national fallback - no exchange file for either. Added
+    # 2026-09-08 for the backfill; neither is in ACTIVE_STATES and neither has
+    # 2026 feed rows. Plain numeric district ids matching District Explorer
+    # exactly (CA 80/40, WA 49/49), so no hd_sql needed.
+    #
+    #  * CA is by far the largest backfill: 22.5M rows in 2024 and 21.9M in 2022,
+    #    against the 227M-row national model. Budget real time for it.
+    #  * WA's senate and house share one district number, the way Idaho's do -
+    #    49 districts each electing one senator and two representatives.
+    #  * WA IS ESSENTIALLY ALL VOTE-BY-MAIL: 13,991 early votes against 5.0M rows
+    #    in 2024 (0.3%), 10,558 against 3.1M in 2022. That is real but negligible,
+    #    not a feed gap - Washington mails every voter a ballot.
+    "CA": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
+    "WA": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
     # CT / NY on the national fallback - no exchange file for either. Coverage
     # CT 85.3% / 90.2%, NY 87.6% / 88.3% for 2022 / 2024. Neither is in
     # ACTIVE_STATES and neither has 2026 feed rows. CT 2022 has no early-vote
@@ -663,11 +685,25 @@ GROUP BY hd, sd, bucket, stat, event_date
 
 
 def normalize_district_id(value):
+    """Feed district value -> the 3-char id used in join keys, or "" for none.
+
+    Numeric ids are normalised through int(), NOT by zero-padding the raw string.
+    Feeds are not consistent about padding: California's 2024 file carries both
+    "1" and "0001" for Assembly District 1, and zfill(3) leaves the second one at
+    four characters, so it became a phantom district that joins to no shapefile
+    and renders nowhere - 76,199 requests and 56,495 returns, about a third of
+    that district's votes, silently missing. Going through int() collapses any
+    padding to one id, and also catches "00"/"000" as the no-district sentinel
+    rather than inventing district "000".
+
+    Lettered ids (Alaska's "00B" senate, ND "04A", SD "26A") are not digits and
+    pass through untouched."""
     raw = str(value or "").strip().upper()
-    if not raw or raw == "0" or raw == "NONE":
+    if not raw or raw == "NONE":
         return ""
     if raw.isdigit():
-        return raw.zfill(3)
+        n = int(raw)
+        return "" if n == 0 else str(n).zfill(3)
     return raw.replace(" ", "")
 
 

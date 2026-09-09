@@ -1,9 +1,10 @@
 {
-  "updated": "2026-09-08",
+  "updated": "2026-09-09",
   "years": {
     "2022": {
       "house": [
         "data/abev/history/2022/ak_house.json",
+        "data/abev/history/2022/ca_house.json",
         "data/abev/history/2022/ct_house.json",
         "data/abev/history/2022/de_house.json",
         "data/abev/history/2022/ga_house.json",
@@ -27,11 +28,13 @@
         "data/abev/history/2022/tn_house.json",
         "data/abev/history/2022/tx_house.json",
         "data/abev/history/2022/va_house.json",
+        "data/abev/history/2022/wa_house.json",
         "data/abev/history/2022/wi_house.json",
         "data/abev/history/2022/wv_house.json"
       ],
       "senate": [
         "data/abev/history/2022/ak_senate.json",
+        "data/abev/history/2022/ca_senate.json",
         "data/abev/history/2022/ct_senate.json",
         "data/abev/history/2022/de_senate.json",
         "data/abev/history/2022/ga_senate.json",
@@ -56,6 +59,7 @@
         "data/abev/history/2022/tn_senate.json",
         "data/abev/history/2022/tx_senate.json",
         "data/abev/history/2022/va_senate.json",
+        "data/abev/history/2022/wa_senate.json",
         "data/abev/history/2022/wi_senate.json",
         "data/abev/history/2022/wv_senate.json"
       ],
@@ -65,6 +69,7 @@
     "2024": {
       "house": [
         "data/abev/history/2024/ak_house.json",
+        "data/abev/history/2024/ca_house.json",
         "data/abev/history/2024/ct_house.json",
         "data/abev/history/2024/de_house.json",
         "data/abev/history/2024/ga_house.json",
@@ -87,12 +92,14 @@
         "data/abev/history/2024/tn_house.json",
         "data/abev/history/2024/tx_house.json",
         "data/abev/history/2024/va_house.json",
+        "data/abev/history/2024/wa_house.json",
         "data/abev/history/2024/wi_house.json",
         "data/abev/history/2024/wv_house.json",
         "data/abev/history/2024/wy_house.json"
       ],
       "senate": [
         "data/abev/history/2024/ak_senate.json",
+        "data/abev/history/2024/ca_senate.json",
         "data/abev/history/2024/ct_senate.json",
         "data/abev/history/2024/de_senate.json",
         "data/abev/history/2024/ga_senate.json",
@@ -116,6 +123,7 @@
         "data/abev/history/2024/tn_senate.json",
         "data/abev/history/2024/tx_senate.json",
         "data/abev/history/2024/va_senate.json",
+        "data/abev/history/2024/wa_senate.json",
         "data/abev/history/2024/wi_senate.json",
         "data/abev/history/2024/wv_senate.json",
         "data/abev/history/2024/wy_senate.json"
