@@ -344,14 +344,8 @@ export const STATE_DATA_NOTES = {
   "48": [
     { years: [2022, 2024], stats: ["requested"], text: "No request dates in either historical year." },
   ],
-  "51": [
-    { years: [2026], text: "2026 figures are April referendum test data, not the November general." },
-  ],
   "53": [
     { stats: ["ev"], text: "Washington votes by mail; Early Vote is a 0.3% rounding error by design." },
-  ],
-  "55": [
-    { years: [2026], text: "2026 figures are April Supreme Court race test data, not the November general." },
   ],
   "56": [
     { years: [2022], text: "2022 dropped: 62 returns against 57,634 requests made the year unusable." },
@@ -391,16 +385,16 @@ export const VIEW_MAP_STAT = {
 // Chronological views never display dates past election day.
 // Overrides cover the spring-2026 test elections; everything else is Nov 3.
 export const DEFAULT_ELECTION_DAY = "2026-11-03";
-export const ELECTION_DAY_OVERRIDES = {
-  "51": "2026-04-21", // VA referendum (test data)
-  "55": "2026-04-07", // WI Supreme Court (test data)
-};
+// Empty since 2026-09-09, when the VA and WI spring test data was retired and
+// both states moved to the November calendar. Kept because the next off-cycle
+// contest will need it: add the state's FIPS and its real election day, and pair
+// it with an ElectionType filter in daily_update so the off-cycle rows are the
+// only ones counted.
+export const ELECTION_DAY_OVERRIDES = {};
 
 // First day of each state's ABEV window; chrono tables fold anything earlier
 // into the "Earlier" row. TODO: fill in from a full state-by-state table.
 export const ABEV_START_OVERRIDES = {
-  "51": "2026-03-06", // VA (test)
-  "55": "2026-03-17", // WI (test)
   "02": "2026-01-01", // AK — perm-AB signups, run all cycle
   "44": "2026-01-01", // RI — perm-AB signups, run all cycle
   "42": "2026-01-01", // PA — annual mail-in list, requests run all cycle

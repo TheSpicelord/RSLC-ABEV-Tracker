@@ -57,6 +57,23 @@ WATERMARK_PATH = PROJECT_ROOT / "scripts" / ".abev_watermarks.json"
 DEFAULT_WORKERS = 4
 
 ABEV_TABLE = "dbo.General_Absentees_2026"
+
+# The 2026 feed carries more than the November general. It labels every row with
+# an ElectionType, and off-cycle contests sit in the same table:
+#   VA Special Election         1,503,657   (the March referendum)
+#   WI Spring General Election    428,058   (the April Supreme Court race)
+#   <ST> General Election                   (everything else - the real thing)
+#
+# Those two were the spring TEST data this tracker was built against. Retired
+# 2026-09-09: rather than delete their rows, every query filters to the state's
+# own general election, so VA and WI simply go quiet until their November data
+# lands and then light up on their own with no code change.
+#
+# The match is EXACT, not `LIKE '% General Election'`, because "WI Spring General
+# Election" would pass a suffix match. A state whose general is labelled some
+# other way would be silently excluded, so pull_state says so out loud when a
+# state has feed rows but none of them are general-election rows.
+GENERAL_ELECTION_TYPE = "{abbr} General Election"
 STATS = ("requested", "returned", "ev")
 BUCKETS = ("rep", "dem", "toss")
 CYCLE_START = date(2026, 1, 1)
@@ -120,7 +137,6 @@ STATE_MODELS = {
     "VA": {
         "model_table": "dbo.RSLC_VA_R2_Exchange_20250804",
         "join_col": "dt_regid",
-        "election_day": date(2026, 4, 21),  # spring referendum (test data)
         "bucket_sql": (
             "CASE WHEN m.RepublicanFramework_Flag = 1 THEN 'rep' "
             "WHEN m.DemocratFramework_Flag = 1 THEN 'dem' "
@@ -136,7 +152,6 @@ STATE_MODELS = {
     "WI": {
         "model_table": "dbo.RSLC_WI_Exchange_20260819",
         "join_col": "dt_regid",
-        "election_day": date(2026, 4, 7),  # spring Supreme Court (test data)
         "bucket_sql": (
             "CASE WHEN m.Framework = 'Rep' THEN 'rep' "
             "WHEN m.Framework = 'Dem' THEN 'dem' "
@@ -800,7 +815,7 @@ WITH scored AS (
     LEFT JOIN {model['model_table']} m
         ON m.{model['join_col']} = CONVERT(varchar(36), a.RNC_RegID)
     {extra_join}
-    WHERE a.State = ? {extra_where}
+    WHERE a.State = ? AND a.ElectionType = ? {extra_where}
 ),
 events AS (
     SELECT hd, sd, bucket, 'requested' AS stat, RequestDate AS event_date FROM scored WHERE RequestDate IS NOT NULL
@@ -870,9 +885,18 @@ def pull_state(conn, abbr, today):
     model = STATE_MODELS[abbr]
     print(f"[{abbr}] running aggregate query (model: {model['model_table']}) ...")
     cursor = conn.cursor()
-    cursor.execute(state_query(model), abbr)
+    cursor.execute(state_query(model), abbr, GENERAL_ELECTION_TYPE.format(abbr=abbr))
     rows = cursor.fetchall()
     print(f"[{abbr}] {len(rows):,} aggregate rows returned.")
+    if not rows:
+        cursor.execute(
+            f"SELECT ElectionType, COUNT(*) FROM {model.get('abev_table', ABEV_TABLE)} "
+            f"a WHERE a.State = ? GROUP BY ElectionType", abbr)
+        other = [(t, n) for t, n in cursor.fetchall()]
+        if other:
+            shown = ", ".join(f"{t or 'NULL'}={n:,}" for t, n in other)
+            print(f"[{abbr}] ** no rows for '{GENERAL_ELECTION_TYPE.format(abbr=abbr)}', "
+                  f"but the feed holds: {shown}")
 
     election_day = model.get("election_day", DEFAULT_ELECTION_DAY)
     derive_senate = model.get("derive_senate")
@@ -1054,8 +1078,8 @@ def state_watermark(conn, abbr):
         f"CONVERT(varchar(10), MAX(a.RequestDate), 23), "
         f"CONVERT(varchar(10), MAX(a.ReturnDate), 23), "
         f"CONVERT(varchar(10), MAX(a.EarlyVoted), 23) "
-        f"FROM {table} a WHERE a.State = ? {extra_where}",
-        abbr,
+        f"FROM {table} a WHERE a.State = ? AND a.ElectionType = ? {extra_where}",
+        abbr, GENERAL_ELECTION_TYPE.format(abbr=abbr),
     )
     n, req, ret, ev = cur.fetchone()
     return {"n": int(n or 0), "req": req, "ret": ret, "ev": ev,
