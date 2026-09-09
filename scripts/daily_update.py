@@ -459,6 +459,15 @@ STATE_MODELS = {
     #  * AR 2024 loses 11.3% of its rows to a NULL district (99,519 of 881,367),
     #    against 2.4% in 2022. Those voters count statewide but land in no
     #    district.
+    # Utah on the national fallback - no exchange file. Added 2026-09-09; not in
+    # ACTIVE_STATES and no 2026 feed rows. Utah votes almost entirely by mail, so
+    # its early-vote column is small but real (31,917 rows in 2024 against 1.5M
+    # requests) - that is Utah, not a gap.
+    "UT": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
     # New Mexico on the national fallback - no exchange file. Added 2026-09-09;
     # not in ACTIVE_STATES and no 2026 feed rows. Its feed is unusually clean:
     # 0.0% NULL districts in both years, 70/42 matching District Explorer exactly.

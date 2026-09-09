@@ -110,7 +110,7 @@ CHAMBER_DISTRICT_CAPS = {
     "IN": (100, 50), "KY": (100, 38), "TN": (99, 33),
     "MT": (100, 50), "ID": (35, 35), "WY": (62, 31),
     "CA": (80, 40), "WA": (49, 49), "OH": (99, 33),
-    "MO": (163, 34), "AR": (100, 35), "NM": (70, 42),
+    "MO": (163, 34), "AR": (100, 35), "NM": (70, 42), "UT": (75, 29),
     # New Hampshire's house ids are COUNTY-CODED - one county digit plus a
     # two-digit district (601 = Merrimack 1) - so a single numeric ceiling cannot
     # describe them: 630 is the last Merrimack seat but 740 and 908 are perfectly
