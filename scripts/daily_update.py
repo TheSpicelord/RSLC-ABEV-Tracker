@@ -45,6 +45,8 @@ from datetime import date
 from pathlib import Path
 from queue import Queue
 
+from nh_floterials import floterial_counts
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = PROJECT_ROOT / "scripts" / "db_config.ini"
 OUT_DIR = PROJECT_ROOT / "data" / "abev"
@@ -788,6 +790,21 @@ def pull_state(conn, abbr, today):
             senate_tl[sd_id][stat][date_key][bucket] += n
         statewide[stat][bucket] += n
         timeline[stat][date_key][bucket] += n
+
+    # New Hampshire's floterial districts overlay whole base districts and never
+    # appear in the feed - a voter's record carries one lower district, not two -
+    # so they are aggregated from their constituents here. Exact integer addition:
+    # no voter belongs to two of a floterial's parts. See nh_floterials.py.
+    #
+    # Only pull_state does this. load_prior_result reads a previous run's JSON,
+    # which already contains the floterials, so re-deriving there would be
+    # redundant work over data that is already correct.
+    if abbr == "NH":
+        made_d, made_t = floterial_counts(house, house_tl, STATS, BUCKETS)
+        house.update(made_d)
+        house_tl.update(made_t)
+        if made_d:
+            print(f"[{abbr}] +{len(made_d)} floterial districts aggregated from their base districts")
 
     return house, senate, statewide, timeline, house_tl, senate_tl
 
