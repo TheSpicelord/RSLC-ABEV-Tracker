@@ -57,7 +57,7 @@ from datetime import date
 from pathlib import Path
 
 # Reuse the single source of truth for credentials, models, and FIPS/name maps.
-from nh_floterials import floterial_counts
+from nh_floterials import floterial_counts, is_floterial
 from daily_update import (
     ABBR_TO_FIPS,
     ABBR_TO_NAME,
@@ -109,7 +109,7 @@ CHAMBER_DISTRICT_CAPS = {
     "ND": (47, 47), "SD": (35, 35), "NE": (0, 49),
     "IN": (100, 50), "KY": (100, 38), "TN": (99, 33),
     "MT": (100, 50), "ID": (35, 35), "WY": (62, 31),
-    "CA": (80, 40), "WA": (49, 49),
+    "CA": (80, 40), "WA": (49, 49), "OH": (99, 33),
     # New Hampshire's house ids are COUNTY-CODED - one county digit plus a
     # two-digit district (601 = Merrimack 1) - so a single numeric ceiling cannot
     # describe them: 630 is the last Merrimack seat but 740 and 908 are perfectly
@@ -455,6 +455,12 @@ def build_year_outputs(year, results, updated):
                 "districts": [
                     {
                         "district_id": did,
+                        # Floterials overlap the base districts they sit on, so a
+                        # consumer that sums this column would double-count. Flag
+                        # them rather than rely on anyone knowing which ids are
+                        # floterials. Statewide totals are computed per-voter and
+                        # never by summing districts, so they are already correct.
+                        **({"floterial": True} if is_floterial(abbr, chamber, did) else {}),
                         **dmap[did],
                         "timeline": {stat: timeline_rows(tlmap[did][stat]) for stat in STATS},
                     }

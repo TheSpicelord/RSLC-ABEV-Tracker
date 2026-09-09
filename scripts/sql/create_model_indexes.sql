@@ -59,6 +59,11 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
     ON dbo.RAGA_KS_Exchange_20260708 (dt_regid)
     INCLUDE (universenumber);
 
+-- The two VS audience files (NH and OH) are DELIBERATELY NOT INDEXED, and cannot
+-- be: both use rnc_reg_id nvarchar(MAX) as their join column. See the NH note
+-- below; Ohio is the same case at 7.9M rows, still small next to the 227M-row
+-- national table this file exists to avoid scanning.
+
 -- New Hampshire SUN audiences: DELIBERATELY NOT INDEXED, and it cannot be.
 -- VS.NH_Audiences_20260812's join column `rnc_reg_id` is nvarchar(MAX), which SQL
 -- Server refuses as an index key ("of a type that is invalid for use as a key

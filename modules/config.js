@@ -329,7 +329,7 @@ export const STATE_DATA_NOTES = {
     { stats: ["ev"],
       text: "New Hampshire has no in-person early voting - it votes absentee or on election day - so its Early Vote total is zero by law, not missing. Requested and Returned are complete." },
     { chambers: ["house"],
-      text: "New Hampshire's 39 floterial districts are COMPUTED, not measured. A floterial has no territory of its own - it overlays a group of whole base districts and elects extra members across them - and the source records one district per voter, so it can never be read directly. Each floterial's numbers are the sum of its base districts, which is exact because no voter belongs to two of them. Note this means a New Hampshire voter is counted once in a base district and again in its floterial, so the house districts deliberately add up to more than the statewide total." },
+      text: "New Hampshire's 39 floterial districts are COMPUTED, not measured and are tagged as floterial in the data. A floterial has no territory of its own - it overlays a group of whole base districts and elects extra members across them - and the source records one district per voter, so it can never be read directly. Each floterial's numbers are the sum of its base districts, which is exact because no voter belongs to two of them. Note this means a New Hampshire voter is counted once in a base district and again in its floterial, so the house districts deliberately add up to more than the statewide total." },
   ],
   "36": [{
     text: "New York's Assembly plan was replaced for 2024 and the Senate lines moved with it, so the affected districts read N/A for 2022. Whether the 2024 lines carry into 2026 is unverified - New York has no 2026 feed rows yet.",
@@ -343,6 +343,9 @@ export const STATE_DATA_NOTES = {
     { years: [2024],
       text: "8.7% of North Dakota's 2024 rows carry no district at all. Those voters count in the statewide total, so North Dakota's district counts sum short of it." },
   ],
+  "39": [{
+    text: "Ohio's party lean comes from the GENERIC CONGRESSIONAL ballot. The same model file also carries the US Senate race (Husted vs Brown) and the Governor race (Ramaswamy vs Acton), and District Explorer shows all three side by side - so an Ohio district's lean here matches DE's \"OH Con\" column, not its Sen or Gov ones.",
+  }],
   "41": [
     { stats: ["ev"],
       text: "Oregon votes entirely by mail, so its Early Vote total is legitimately zero." },

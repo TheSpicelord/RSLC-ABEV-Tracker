@@ -45,7 +45,7 @@ from datetime import date
 from pathlib import Path
 from queue import Queue
 
-from nh_floterials import floterial_counts
+from nh_floterials import floterial_counts, is_floterial
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = PROJECT_ROOT / "scripts" / "db_config.ini"
@@ -422,6 +422,27 @@ STATE_MODELS = {
     # VS schema. The plain string join used here works (85.7% of the 2024 feed,
     # 81.4% of 2022) - the ids are uppercase dashed GUIDs, the same shape
     # CONVERT(varchar(36), RNC_RegID) produces.
+    # Ohio: the OH audience file, bucketed on the GENERIC CONGRESSIONAL ballot, as
+    # specified. District Explorer carries three races off this same table - US
+    # Sen (Husted/Brown), Gov (Ramaswamy/Acton) and Con - so an Ohio lean here
+    # matches DE's "OH Con" column, not its Sen or Gov ones. The file also has
+    # cong_ballot_COMBINED_rep/dem beside the generic pair; generic is the one
+    # chosen. Switching races is a two-word edit.
+    #
+    # Mutually exclusive but not exhaustive: 9.4% are in neither congressional
+    # audience and correctly fall to 'toss'.
+    #
+    # Same VS schema, rnc_reg_id join column and nvarchar(MAX) index problem as
+    # NH - see create_model_indexes.sql. Joins 96.3% of the 2024 OH feed.
+    "OH": {
+        "model_table": "VS.OH_Audiences_20260812",
+        "join_col": "rnc_reg_id",
+        "bucket_sql": (
+            "CASE WHEN m.cong_ballot_generic_rep_audience = 1 THEN 'rep' "
+            "WHEN m.cong_ballot_generic_dem_audience = 1 THEN 'dem' "
+            "ELSE 'toss' END"  # in neither audience -> toss
+        ),
+    },
     "NH": {
         "model_table": "VS.NH_Audiences_20260812",
         "join_col": "rnc_reg_id",
@@ -845,6 +866,12 @@ def build_outputs(results, updated):
                 "districts": [
                     {
                         "district_id": did,
+                        # Floterials overlap the base districts they sit on, so a
+                        # consumer that sums this column would double-count. Flag
+                        # them rather than rely on anyone knowing which ids are
+                        # floterials. Statewide totals are computed per-voter and
+                        # never by summing districts, so they are already correct.
+                        **({"floterial": True} if is_floterial(abbr, chamber, did) else {}),
                         **dmap[did],
                         "timeline": {stat: timeline_rows(tlmap[did][stat]) for stat in STATS},
                     }
