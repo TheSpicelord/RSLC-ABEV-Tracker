@@ -59,6 +59,18 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
     ON dbo.RAGA_KS_Exchange_20260708 (dt_regid)
     INCLUDE (universenumber);
 
+-- New Hampshire SUN audiences: DELIBERATELY NOT INDEXED, and it cannot be.
+-- VS.NH_Audiences_20260812's join column `rnc_reg_id` is nvarchar(MAX), which SQL
+-- Server refuses as an index key ("of a type that is invalid for use as a key
+-- column"), even though every value is exactly 36 characters. Attempting it fails
+-- with error 1919.
+--
+-- The cost is negligible: at 916,682 rows - one per New Hampshire voter, the
+-- smallest model table here - a scan is cheap next to the 227M-row national table
+-- this file exists to avoid scanning. If it ever does matter, the fix is
+-- ALTER COLUMN rnc_reg_id nvarchar(36), but that is a schema change to a
+-- vendor-supplied table and should be agreed rather than done here.
+
 -- Nevada governor IE model
 IF NOT EXISTS (SELECT 1 FROM sys.indexes
                WHERE name = 'IX_dtregid_NV'

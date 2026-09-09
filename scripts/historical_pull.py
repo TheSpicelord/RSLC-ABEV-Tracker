@@ -109,7 +109,31 @@ CHAMBER_DISTRICT_CAPS = {
     "IN": (100, 50), "KY": (100, 38), "TN": (99, 33),
     "MT": (100, 50), "ID": (35, 35), "WY": (62, 31),
     "CA": (80, 40), "WA": (49, 49),
+    # New Hampshire's house ids are COUNTY-CODED - one county digit plus a
+    # two-digit district (601 = Merrimack 1) - so a single numeric ceiling cannot
+    # describe them: 630 is the last Merrimack seat but 740 and 908 are perfectly
+    # valid. A cap entry may therefore also be a SET of allowed ids, which is what
+    # NH_HOUSE_DISTRICTS below builds from the per-county seat counts.
+    "NH": (None, 24),
 }
+
+# New Hampshire house seats per county, in the county order its ids use
+# (0 Belknap, 1 Carroll, 2 Cheshire, 3 Coos, 4 Grafton, 5 Hillsborough,
+# 6 Merrimack, 7 Rockingham, 8 Strafford, 9 Sullivan). Verified against District
+# Explorer's nh_house.json: 203 districts carrying exactly 400 members, which is
+# the true size of the New Hampshire House.
+#
+# This exists because the 2022 feed carries "642" - Merrimack 42, in a county with
+# 30 seats - for 394 voters. It is a bad source value, not a retired district: NH
+# has used the same map since 2022. Without this it would pass the numeric check
+# and become a phantom district joining to no shapefile.
+NH_HOUSE_SEATS_BY_COUNTY = {0: 8, 1: 8, 2: 18, 3: 7, 4: 18, 5: 45, 6: 30, 7: 40, 8: 21, 9: 8}
+NH_HOUSE_DISTRICTS = frozenset(
+    f"{county}{seat:02d}"
+    for county, seats in NH_HOUSE_SEATS_BY_COUNTY.items()
+    for seat in range(1, seats + 1)
+)
+CHAMBER_DISTRICT_ALLOWLISTS = {("NH", 0): NH_HOUSE_DISTRICTS}
 
 # Maryland's 18 subdivided legislative districts - the ones that elect delegates
 # from lettered subdistricts (01A, 27C ...) rather than at large. Kept here as
@@ -136,9 +160,14 @@ def valid_district(district_id, abbr, chamber_index):
         return False
     if not district_id.isdigit():
         return True
+    allow = CHAMBER_DISTRICT_ALLOWLISTS.get((abbr, chamber_index))
+    if allow is not None:
+        return district_id in allow
     value = int(district_id)
     caps = CHAMBER_DISTRICT_CAPS.get(abbr)
     cap = caps[chamber_index] if caps else DEFAULT_DISTRICT_CAP
+    if cap is None:
+        return True
     return 1 <= value <= cap
 
 

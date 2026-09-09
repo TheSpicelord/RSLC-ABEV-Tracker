@@ -324,6 +324,13 @@ export const STATE_DATA_NOTES = {
     stats: ["ev"],
     text: "Montana's feed carries no early-vote rows in either year, so Early Vote reads zero. Unlike Tennessee or Oregon this is not a rule of the state - Montana does allow in-person absentee voting from 30 days out - the votes simply are not in the data.",
   }],
+  "33": [
+    { text: "New Hampshire's party lean comes from the GOVERNOR ballot (Ayotte vs the Democrat). The same model file also carries the US Senate ballot (Sununu vs Pappas), and District Explorer shows both side by side - so a New Hampshire district's lean here matches DE's \"SUN Gov\" column, not its \"SUN US Sen\" column." },
+    { stats: ["ev"],
+      text: "New Hampshire has no in-person early voting - it votes absentee or on election day - so its Early Vote total is zero by law, not missing. Requested and Returned are complete." },
+    { chambers: ["house"],
+      text: "163 of New Hampshire's 203 house districts carry data. The missing 40 are floterial districts, which overlay the base districts: a voter belongs to a base district AND a floterial, but the source file records only one, so a floterial can never be populated from it. Every New Hampshire model has this same ceiling." },
+  ],
   "36": [{
     text: "New York's Assembly plan was replaced for 2024 and the Senate lines moved with it, so the affected districts read N/A for 2022. Whether the 2024 lines carry into 2026 is unverified - New York has no 2026 feed rows yet.",
   }],

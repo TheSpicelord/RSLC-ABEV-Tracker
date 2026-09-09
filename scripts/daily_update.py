@@ -403,6 +403,32 @@ STATE_MODELS = {
         "join_col": "dt_regid",
         "bucket_sql": NATIONAL_BUCKET_SQL,
     },
+    # New Hampshire: the SUN audience file, bucketed on the GOVERNOR ballot
+    # (Ayotte vs the generic Democrat). Chosen 2026-09-09 over the Senate ballot,
+    # which is the other half of the same table - District Explorer carries BOTH
+    # as side-by-side columns (model_sungov_all / model_sunsen_all), so the two
+    # projects agree on the governor number and DE additionally shows the senate
+    # one. To switch the tracker to the Senate race, swap the two column names
+    # below for sen_ballot_named_sununu_audience / sen_ballot_named_pappas_
+    # audience; the index already INCLUDEs all four, so no index change is needed.
+    #
+    # The pair is mutually exclusive but NOT exhaustive: 9.7% of voters are in
+    # neither governor audience and correctly fall to 'toss', so New Hampshire has
+    # a real swing bucket even though the model has no explicit persuasion column.
+    #
+    # Note the join column is `rnc_reg_id`, not dt_regid, and the table is in the
+    # VS schema. The plain string join used here works (85.7% of the 2024 feed,
+    # 81.4% of 2022) - the ids are uppercase dashed GUIDs, the same shape
+    # CONVERT(varchar(36), RNC_RegID) produces.
+    "NH": {
+        "model_table": "VS.NH_Audiences_20260812",
+        "join_col": "rnc_reg_id",
+        "bucket_sql": (
+            "CASE WHEN m.gov_ballot_named_ayotte_audience = 1 THEN 'rep' "
+            "WHEN m.gov_ballot_named_dem_audience = 1 THEN 'dem' "
+            "ELSE 'toss' END"  # in neither audience -> toss
+        ),
+    },
     # CT / NY on the national fallback - no exchange file for either. Coverage
     # CT 85.3% / 90.2%, NY 87.6% / 88.3% for 2022 / 2024. Neither is in
     # ACTIVE_STATES and neither has 2026 feed rows. CT 2022 has no early-vote

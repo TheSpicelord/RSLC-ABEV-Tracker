@@ -1,4 +1,4 @@
-import { requireAuth } from "./modules/auth.js?v=20260909a";
+import { requireAuth } from "./modules/auth.js?v=20260909b";
 import {
   ABEV_HISTORY_INDEX_URL,
   ABEV_INDEX_URL,
@@ -31,7 +31,7 @@ import {
   VIEW_BUTTON_LABELS,
   VIEW_CARD_LABELS,
   VIEW_MAP_STAT,
-} from "./modules/config.js?v=20260909a";
+} from "./modules/config.js?v=20260909b";
 import {
   details,
   detailsTitle,
@@ -45,15 +45,15 @@ import {
   targetDistrictsToggle,
   updatedBadge,
   upIn2026Toggle,
-} from "./modules/dom.js?v=20260909a";
-import { state } from "./modules/state.js?v=20260909a";
-import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20260909a";
+} from "./modules/dom.js?v=20260909b";
+import { state } from "./modules/state.js?v=20260909b";
+import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20260909b";
 
 if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260909a";
+const BUILD_VERSION = "20260909b";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
