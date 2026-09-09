@@ -36,6 +36,7 @@ Date handling:
 import argparse
 import configparser
 import json
+import re
 import subprocess
 import sys
 import time
@@ -461,6 +462,30 @@ STATE_MODELS = {
     #  * AR 2024 loses 11.3% of its rows to a NULL district (99,519 of 881,367),
     #    against 2.4% in 2022. Those voters count statewide but land in no
     #    district.
+    # FL and MN on the national fallback, added 2026-09-09 so that every state
+    # with 2026 feed data is published. Neither has an exchange file.
+    #
+    #  * MINNESOTA'S HOUSE IDS ARE LETTERED (01A..67B, two seats per senate
+    #    district) and its feed writes them UNPADDED - "1A" where every chamber
+    #    file says "01A". normalize_district_id() pads them; without that, 18 of
+    #    its 134 house districts would join to nothing.
+    #  * MN was previously held back pending a state model. It is on the national
+    #    fallback now because it has data and should be visible; swapping in a
+    #    state model later is a STATE_MODELS edit, and the watermark includes the
+    #    model table, so the next run re-pulls it automatically.
+    #  * FL and MN are both early in their cycle - 2.07M and 179k requests against
+    #    ONE return between them - which is correct, not a gap: neither has begun
+    #    returning ballots.
+    "FL": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
+    "MN": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
     # Utah on the national fallback - no exchange file. Added 2026-09-09; not in
     # ACTIVE_STATES and no 2026 feed rows. Utah votes almost entirely by mail, so
     # its early-vote column is small but real (31,917 rows in 2024 against 1.5M
@@ -651,7 +676,10 @@ STATE_MODELS = {
     },
 }
 
-ACTIVE_STATES = ["VA", "WI", "AK", "RI", "PA", "NJ", "GA", "NC", "KS"]
+# Every state with rows in dbo.General_Absentees_2026 (12 as of 2026-09-09),
+# plus KS, which is wired and waiting on its data.
+ACTIVE_STATES = ["VA", "WI", "AK", "RI", "PA", "NJ", "GA", "NC", "KS",
+                 "FL", "IL", "MN", "IA"]
 # Every state in STATE_MODELS is wired and indexed; ACTIVE_STATES is the separate
 # question of whether the AB feed actually carries it yet. A state needs BOTH a
 # model and rows in dbo.General_Absentees_2026 before it belongs here.
@@ -787,6 +815,9 @@ GROUP BY hd, sd, bucket, stat, event_date
 """
 
 
+_LETTERED_DISTRICT = re.compile(r"^(\d+)([A-Z]+)$")
+
+
 def normalize_district_id(value):
     """Feed district value -> the 3-char id used in join keys, or "" for none.
 
@@ -801,13 +832,23 @@ def normalize_district_id(value):
 
     Lettered ids (Alaska's "00B" senate, ND "04A", SD "26A") are not digits and
     pass through untouched."""
-    raw = str(value or "").strip().upper()
+    raw = str(value or "").strip().upper().replace(" ", "")
     if not raw or raw == "NONE":
         return ""
     if raw.isdigit():
         n = int(raw)
         return "" if n == 0 else str(n).zfill(3)
-    return raw.replace(" ", "")
+    # Lettered ids (a numeric district split into lettered seats) get the SAME
+    # padding treatment, for the same reason: Minnesota's feed says "1A" where
+    # every chamber file says "01A", so without this 18 of its 134 house
+    # districts - 1A/1B through 9A/9B - join to nothing and render nowhere.
+    # Two digits, not three, because that is the width every lettered state
+    # already uses: MN 01A, MD 27C, ND 04A, SD 26A, and Alaska's derived senate
+    # 00A-00T, which this leaves untouched.
+    m = _LETTERED_DISTRICT.match(raw)
+    if m:
+        return f"{int(m.group(1)):02d}{m.group(2)}"
+    return raw
 
 
 def timeline_key(stat, event_date, today, election_day):
