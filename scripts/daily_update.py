@@ -435,8 +435,10 @@ STATE_MODELS = {
     # Same VS schema, rnc_reg_id join column and nvarchar(MAX) index problem as
     # NH - see create_model_indexes.sql. Joins 96.3% of the 2024 OH feed.
     "OH": {
-        "model_table": "VS.OH_Audiences_20260812",
-        "join_col": "rnc_reg_id",
+        # Reads the indexed projection, not the vendor table - see
+        # create_model_indexes.sql. Cuts this aggregate from 60s to 25s.
+        "model_table": "dbo.OH_Audiences_20260812_idx",
+        "join_col": "dt_regid",
         "bucket_sql": (
             "CASE WHEN m.cong_ballot_generic_rep_audience = 1 THEN 'rep' "
             "WHEN m.cong_ballot_generic_dem_audience = 1 THEN 'dem' "
@@ -487,8 +489,10 @@ STATE_MODELS = {
         "bucket_sql": NATIONAL_BUCKET_SQL,
     },
     "NH": {
-        "model_table": "VS.NH_Audiences_20260812",
-        "join_col": "rnc_reg_id",
+        # Reads the indexed projection, not the vendor table - see
+        # create_model_indexes.sql. Same rows, same values, keyed properly.
+        "model_table": "dbo.NH_Audiences_20260812_idx",
+        "join_col": "dt_regid",
         "bucket_sql": (
             "CASE WHEN m.gov_ballot_named_ayotte_audience = 1 THEN 'rep' "
             "WHEN m.gov_ballot_named_dem_audience = 1 THEN 'dem' "

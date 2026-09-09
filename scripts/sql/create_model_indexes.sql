@@ -59,22 +59,55 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
     ON dbo.RAGA_KS_Exchange_20260708 (dt_regid)
     INCLUDE (universenumber);
 
--- The two VS audience files (NH and OH) are DELIBERATELY NOT INDEXED, and cannot
--- be: both use rnc_reg_id nvarchar(MAX) as their join column. See the NH note
--- below; Ohio is the same case at 7.9M rows, still small next to the 227M-row
--- national table this file exists to avoid scanning.
-
--- New Hampshire SUN audiences: DELIBERATELY NOT INDEXED, and it cannot be.
--- VS.NH_Audiences_20260812's join column `rnc_reg_id` is nvarchar(MAX), which SQL
--- Server refuses as an index key ("of a type that is invalid for use as a key
--- column"), even though every value is exactly 36 characters. Attempting it fails
--- with error 1919.
+-- ---------------------------------------------------------------------------
+-- INDEXED PROJECTIONS for the VS audience files (NH, OH)
 --
--- The cost is negligible: at 916,682 rows - one per New Hampshire voter, the
--- smallest model table here - a scan is cheap next to the 227M-row national table
--- this file exists to avoid scanning. If it ever does matter, the fix is
--- ALTER COLUMN rnc_reg_id nvarchar(36), but that is a schema change to a
--- vendor-supplied table and should be agreed rather than done here.
+-- These two cannot be indexed in place: their join column `rnc_reg_id` is
+-- nvarchar(MAX), which SQL Server refuses as an index key (error 1919, "of a
+-- type that is invalid for use as a key column"), even though every value is
+-- exactly 36 characters. Left alone, every daily aggregate scans the whole
+-- vendor table - measured at 62s for Ohio against the 2024 feed, where Arizona
+-- did 40% MORE feed rows in 32s because it has an index.
+--
+-- The fix is a narrow copy we own, keyed properly: dt_regid cast to varchar(36)
+-- plus only the audience columns the two projects bucket on, clustered on
+-- dt_regid. Ohio's aggregate drops 60.1s -> 25.3s (2.4x) and New Hampshire's
+-- 9.2s -> 6.8s, with byte-identical results.
+--
+-- WHY A COPY RATHER THAN ALTERING THE SOURCE: `ALTER COLUMN rnc_reg_id
+-- varchar(36)` would also work and would need no copy, but it is a schema change
+-- to a vendor-supplied table that other consumers may read. A derived table we
+-- own is strictly safer and gets the same win.
+--
+-- THESE GO STALE IF THE VENDOR REPLACES THE SOURCE. That is the same assumption
+-- the rest of this file already makes - model tables are static, and a refresh
+-- arrives as a brand-new table - but here it costs a rebuild rather than just an
+-- index. Drop the projection and re-run this file after any refresh. The build is
+-- guarded on existence, so re-running is cheap when nothing has changed.
+-- ---------------------------------------------------------------------------
+
+IF OBJECT_ID('dbo.NH_Audiences_20260812_idx') IS NULL
+BEGIN
+    SELECT CAST(rnc_reg_id AS varchar(36)) AS dt_regid,
+           gov_ballot_named_ayotte_audience, gov_ballot_named_dem_audience,
+           sen_ballot_named_sununu_audience, sen_ballot_named_pappas_audience
+    INTO dbo.NH_Audiences_20260812_idx
+    FROM VS.NH_Audiences_20260812;
+    ALTER TABLE dbo.NH_Audiences_20260812_idx ALTER COLUMN dt_regid varchar(36) NOT NULL;
+    CREATE CLUSTERED INDEX CIX_NH_dtregid ON dbo.NH_Audiences_20260812_idx (dt_regid);
+END;
+
+IF OBJECT_ID('dbo.OH_Audiences_20260812_idx') IS NULL
+BEGIN
+    SELECT CAST(rnc_reg_id AS varchar(36)) AS dt_regid,
+           cong_ballot_generic_rep_audience, cong_ballot_generic_dem_audience,
+           sen_ballot_named_husted_audience, sen_ballot_named_brown_audience,
+           gov_ballot_ramaswamy_audience, gov_ballot_acton_audience
+    INTO dbo.OH_Audiences_20260812_idx
+    FROM VS.OH_Audiences_20260812;
+    ALTER TABLE dbo.OH_Audiences_20260812_idx ALTER COLUMN dt_regid varchar(36) NOT NULL;
+    CREATE CLUSTERED INDEX CIX_OH_dtregid ON dbo.OH_Audiences_20260812_idx (dt_regid);
+END;
 
 -- Nevada governor IE model
 IF NOT EXISTS (SELECT 1 FROM sys.indexes
