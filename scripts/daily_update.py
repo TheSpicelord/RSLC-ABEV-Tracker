@@ -459,6 +459,14 @@ STATE_MODELS = {
     #  * AR 2024 loses 11.3% of its rows to a NULL district (99,519 of 881,367),
     #    against 2.4% in 2022. Those voters count statewide but land in no
     #    district.
+    # New Mexico on the national fallback - no exchange file. Added 2026-09-09;
+    # not in ACTIVE_STATES and no 2026 feed rows. Its feed is unusually clean:
+    # 0.0% NULL districts in both years, 70/42 matching District Explorer exactly.
+    "NM": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
     "MO": {
         "model_table": NATIONAL_MODEL_TABLE,
         "join_col": "dt_regid",
@@ -522,13 +530,20 @@ STATE_MODELS = {
             "ELSE 'toss' END"
         ),
     },
+    # Arizona moved to the Aug 2026 refresh on 2026-09-09, replacing
+    # RGA_AZ_R2_Exchange_20260121. Same format as WI/MI: bucket on the Framework
+    # column, not a universe range. That is not a style preference here - the old
+    # config used 6-7 for Dem, but this ladder puts "Available Dems" at 7 and the
+    # Democrat base at 9, so a 6-7 range would have dropped universes 8 and 9,
+    # over 2.2M Democrat-framework voters, into toss.
+    # Shared with District Explorer's MODELS["AZ"].
     "AZ": {
-        "model_table": "dbo.RGA_AZ_R2_Exchange_20260121",
+        "model_table": "dbo.RSLC_AZ_Exchange_20260819",
         "join_col": "dt_regid",
         "bucket_sql": (
-            "CASE WHEN m.universenumber IN (1, 2) THEN 'rep' "
-            "WHEN m.universenumber IN (6, 7) THEN 'dem' "
-            "ELSE 'toss' END"
+            "CASE WHEN m.Framework = 'Rep' THEN 'rep' "
+            "WHEN m.Framework = 'Dem' THEN 'dem' "
+            "ELSE 'toss' END"  # 'Pers' and unmatched -> toss
         ),
     },
     "GA": {

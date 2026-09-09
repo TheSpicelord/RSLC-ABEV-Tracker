@@ -84,13 +84,13 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
     ON dbo.NV_GOV_IE_R1_Exchange_20260105 (dt_regid)
     INCLUDE (universenumber);
 
--- Arizona exchange model
+-- Arizona exchange model (Aug 2026 refresh; buckets on Framework)
 IF NOT EXISTS (SELECT 1 FROM sys.indexes
                WHERE name = 'IX_dtregid_AZ'
-                 AND object_id = OBJECT_ID('dbo.RGA_AZ_R2_Exchange_20260121'))
+                 AND object_id = OBJECT_ID('dbo.RSLC_AZ_Exchange_20260819'))
     CREATE NONCLUSTERED INDEX IX_dtregid_AZ
-    ON dbo.RGA_AZ_R2_Exchange_20260121 (dt_regid)
-    INCLUDE (universenumber);
+    ON dbo.RSLC_AZ_Exchange_20260819 (dt_regid)
+    INCLUDE (Framework, universenumber);
 
 -- Georgia exchange model (9 universes; Dem base 8-9)
 IF NOT EXISTS (SELECT 1 FROM sys.indexes
@@ -188,3 +188,9 @@ IF EXISTS (SELECT 1 FROM sys.indexes
            WHERE name = 'IX_dtregid_WI'
              AND object_id = OBJECT_ID('dbo.RGA_WI_ExchangeData_20260131'))
     DROP INDEX IX_dtregid_WI ON dbo.RGA_WI_ExchangeData_20260131;
+
+-- Dropped 2026-09-09: superseded by RSLC_AZ_Exchange_20260819
+IF EXISTS (SELECT 1 FROM sys.indexes
+           WHERE name = 'IX_dtregid_AZ'
+             AND object_id = OBJECT_ID('dbo.RGA_AZ_R2_Exchange_20260121'))
+    DROP INDEX IX_dtregid_AZ ON dbo.RGA_AZ_R2_Exchange_20260121;
