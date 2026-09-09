@@ -277,114 +277,84 @@ export const LEG_REDISTRICTING_NOTES = {
 // which blanks the affected cells rather than merely annotating them.
 //
 // Each note may be narrowed by `years`, `stats` and `chambers`; omitting a key
-// means "applies to all of them". Keep `text` to something a non-technical
-// reader can act on - it is rendered verbatim in a tooltip.
+// means "applies to all of them".
+//
+// KEEP THE TEXT SHORT - one phrase, two sentences at the very most. These render
+// in a hover tooltip, where a paragraph does not get read. State the fact and
+// stop; the reasoning, the measurements and the sources belong in CLAUDE.md.
 //
 // WHEN YOU ADD A STATE, ADD ITS EXCEPTIONS HERE. A quirk recorded only in a
 // commit message or a code comment is invisible to everyone looking at the site.
 export const STATE_DATA_NOTES = {
-  "02": [{
-    chambers: ["senate"],
-    text: "Alaska's feed carries no senate district, so each senate district is derived from its two house districts (A = HD 1-2, B = 3-4, and so on).",
-  }],
+  "02": [
+    { chambers: ["senate"], text: "Senate districts derived from house district pairs; the feed carries none." },
+  ],
   "06": [
-    { chambers: ["senate"],
-      text: "California's feed leaves the senate district blank on about 1.2% of rows (1.3% in 2022). Those voters are missing from the senate rollup but are present in the house and statewide totals." },
-    { years: [2022],
-      text: "California matches the national model at only 82.5% in 2022, against 90.4% in 2024. Unmatched voters fall to Swing, so 2022's Swing bucket is inflated by roughly 3.8 million voters and its GOP/Dem margin is correspondingly damped. Compare the two years with that in mind." },
+    { chambers: ["senate"], text: "Senate district is blank on ~1.2% of records, missing from the senate rollup only." },
+    { years: [2022], text: "2022 model match is 82.5% against 90.4% in 2024, inflating that year's Swing bucket." },
   ],
-  "09": [{
-    years: [2022], stats: ["ev"],
-    text: "Connecticut had no in-person early voting until 2024, so its 2022 Early Vote total is correctly zero rather than missing.",
-  }],
+  "09": [
+    { years: [2022], stats: ["ev"], text: "Connecticut had no early voting until 2024; the 2022 zero is correct." },
+  ],
   "16": [
-    { years: [2024], stats: ["ev"],
-      text: "Idaho's 2024 early-vote column was never delivered, so it reads zero. Idaho did hold early voting in 2024 - its 2022 file carries 51,459 early votes - so this is a gap in the data, not a change in Idaho law." },
-    { chambers: ["senate"],
-      text: "Idaho's feed leaves the senate district blank on 4.4% of 2024 rows and 2.2% of 2022 rows, even though Idaho's senate and house share one district number. Those voters are missing from the senate rollup but present in the house and statewide totals." },
+    { years: [2024], stats: ["ev"], text: "2024 early-vote data was never delivered; the zero is a gap, not Idaho law." },
+    { chambers: ["senate"], text: "Senate district is blank on 2-4% of records, missing from the senate rollup only." },
   ],
-  "17": [{
-    years: [2022], chambers: ["senate"],
-    text: "Illinois' 2022 feed has a corrupt SenateDistrict column. The senate district is rebuilt from the two house districts nested inside it, which holds for 100% of Illinois rows.",
-  }],
+  "17": [
+    { years: [2022], chambers: ["senate"], text: "2022 senate districts are rebuilt from the house districts nested inside them." },
+  ],
   "21": [
-    { years: [2024],
-      text: "Kentucky is absent from the 2024 absentee feed entirely - it carries 49 states and Kentucky is not one of them - so Kentucky has no 2024 data at all." },
-    { years: [2022],
-      text: "Every Kentucky 2022 row carries the same placeholder date: 11/8 for mail, 11/5 for early voting. District totals and margins are sound, but the day-by-day and trend views are not meaningful." },
+    { years: [2024], text: "Kentucky is absent from the 2024 feed entirely." },
+    { years: [2022], text: "All 2022 records share one placeholder date; totals are sound, daily and trend views are not." },
   ],
-  "24": [{
-    chambers: ["house"],
-    text: "Maryland elects delegates from 71 units, which its feed cannot express, so the subdistrict letter is rebuilt from the voter file. Attribution in the 18 subdivided districts is 84.8% for 2022 and 92.1% for 2024; the other 29 are complete.",
-  }],
-  "25": [{
-    text: "Massachusetts is deliberately not loaded. It has no 2022 rows at all, and its feed's district columns are internal codes (0-337) rather than district numbers, so nothing joins.",
-  }],
-  "30": [{
-    stats: ["ev"],
-    text: "Montana's feed carries no early-vote rows in either year, so Early Vote reads zero. Unlike Tennessee or Oregon this is not a rule of the state - Montana does allow in-person absentee voting from 30 days out - the votes simply are not in the data.",
-  }],
+  "24": [
+    { chambers: ["house"], text: "House subdistricts rebuilt from the voter file; 85-92% attribution in the 18 subdivided districts." },
+  ],
+  "25": [{ text: "Massachusetts is not loaded: no 2022 records, and its district codes do not map to district numbers." }],
+  "30": [
+    { stats: ["ev"], text: "Early-vote records are missing from the feed; Montana does allow in-person absentee voting." },
+  ],
   "33": [
-    { text: "New Hampshire's party lean comes from the GOVERNOR ballot (Ayotte vs the Democrat). The same model file also carries the US Senate ballot (Sununu vs Pappas), and District Explorer shows both side by side - so a New Hampshire district's lean here matches DE's \"SUN Gov\" column, not its \"SUN US Sen\" column." },
-    { stats: ["ev"],
-      text: "New Hampshire has no in-person early voting - it votes absentee or on election day - so its Early Vote total is zero by law, not missing. Requested and Returned are complete." },
-    { chambers: ["house"],
-      text: "New Hampshire's 39 floterial districts are COMPUTED, not measured and are tagged as floterial in the data. A floterial has no territory of its own - it overlays a group of whole base districts and elects extra members across them - and the source records one district per voter, so it can never be read directly. Each floterial's numbers are the sum of its base districts, which is exact because no voter belongs to two of them. Note this means a New Hampshire voter is counted once in a base district and again in its floterial, so the house districts deliberately add up to more than the statewide total." },
+    { text: "Margins calculated using gubernatorial model." },
+    { stats: ["ev"], text: "No in-person early voting in New Hampshire." },
+    { chambers: ["house"], text: "Floterial district votes not included in statewide totals." },
   ],
-  "36": [{
-    text: "New York's Assembly plan was replaced for 2024 and the Senate lines moved with it, so the affected districts read N/A for 2022. Whether the 2024 lines carry into 2026 is unverified - New York has no 2026 feed rows yet.",
-  }],
-  "37": [{
-    text: "North Carolina's modeled lean uses the national model. The one North Carolina file on the server is a GOP targeting file rather than a partisan classification, and would have put the 2024 absentee electorate at R+29.7 against an actual result of R+3.",
-  }],
+  "36": [{ text: "Assembly and Senate lines changed for 2024; affected districts read N/A for 2022." }],
+  "37": [{ text: "Margins calculated using the national model; no usable North Carolina model exists." }],
   "38": [
-    { chambers: ["house"],
-      text: "North Dakota's House district 4 is split into 4A and 4B, but the feed carries only \"4\", so the subdistrict is rebuilt from the voter file." },
-    { years: [2024],
-      text: "8.7% of North Dakota's 2024 rows carry no district at all. Those voters count in the statewide total, so North Dakota's district counts sum short of it." },
+    { chambers: ["house"], text: "House district 4's subdistricts (4A/4B) rebuilt from the voter file." },
+    { years: [2024], text: "8.7% of 2024 records carry no district, so district counts sum short of statewide." },
   ],
-  "39": [{
-    text: "Ohio's party lean comes from the GENERIC CONGRESSIONAL ballot. The same model file also carries the US Senate race (Husted vs Brown) and the Governor race (Ramaswamy vs Acton), and District Explorer shows all three side by side - so an Ohio district's lean here matches DE's \"OH Con\" column, not its Sen or Gov ones.",
-  }],
+  "39": [{ text: "Margins calculated using generic congressional ballot model." }],
   "41": [
-    { stats: ["ev"],
-      text: "Oregon votes entirely by mail, so its Early Vote total is legitimately zero." },
-    { years: [2022], stats: ["requested"],
-      text: "Oregon's 2022 feed carries no request dates, so Requested is zero for that year." },
+    { stats: ["ev"], text: "Oregon votes entirely by mail; Early Vote is zero by design." },
+    { years: [2022], stats: ["requested"], text: "No request dates in the 2022 feed." },
   ],
-  "44": [{
-    stats: ["returned", "ev"],
-    text: "Every Rhode Island row is a permanent-absentee list signup, so Returned and Early Vote are zero by design.",
-  }],
-  "46": [{
-    chambers: ["house"],
-    text: "South Dakota's House districts 26 and 28 are each split into A and B halves, but the feed carries only the number, so the subdistrict is rebuilt from the voter file.",
-  }],
-  "47": [{
-    stats: ["requested", "returned"],
-    text: "Tennessee has no no-excuse absentee voting and its feed carries only early in-person votes, so Requested and Returned are zero by design - the mirror of Rhode Island.",
-  }],
-  "48": [{
-    years: [2022, 2024], stats: ["requested"],
-    text: "Texas carries no request dates in either historical year, so its Requested view is zero for 2022 and 2024. Returned and Early Vote are unaffected.",
-  }],
-  "53": [{
-    stats: ["ev"],
-    text: "Washington mails every voter a ballot, so its Early Vote total is a rounding error by design - 13,991 rows out of 5.0 million in 2024, about 0.3%. That is real, not a gap in the data.",
-  }],
+  "44": [
+    { stats: ["returned", "ev"], text: "All records are permanent-absentee signups; Returned and Early Vote are zero by design." },
+  ],
+  "46": [
+    { chambers: ["house"], text: "House subdistricts (26A/B, 28A/B) rebuilt from the voter file." },
+  ],
+  "47": [
+    { stats: ["requested", "returned"], text: "No no-excuse absentee voting in Tennessee; early votes only." },
+  ],
+  "48": [
+    { years: [2022, 2024], stats: ["requested"], text: "No request dates in either historical year." },
+  ],
+  "51": [
+    { years: [2026], text: "2026 figures are April referendum test data, not the November general." },
+  ],
+  "53": [
+    { stats: ["ev"], text: "Washington votes by mail; Early Vote is a 0.3% rounding error by design." },
+  ],
+  "55": [
+    { years: [2026], text: "2026 figures are April Supreme Court race test data, not the November general." },
+  ],
   "56": [
-    { years: [2022],
-      text: "Wyoming has no 2022 column because that year's file was unusable: 57,634 requests against just 62 returns and no early votes at all. It was dropped rather than shown as a column that is 99.9% empty. 2024 is healthy (37,563 / 34,499 / 81,211), so this is a gap specific to 2022, not how Wyoming votes." },
-    { text: "Wyoming matches the national model at 78-82%, the lowest of any backfilled state (most run 88-98%). Unmatched voters fall to Swing, so Wyoming's Swing bucket is inflated relative to other states and its GOP/Dem margin is correspondingly damped." },
+    { years: [2022], text: "2022 dropped: 62 returns against 57,634 requests made the year unusable." },
+    { text: "Lowest model match of any state (78-82%), so the Swing bucket is inflated." },
   ],
-  "51": [{
-    years: [2026],
-    text: "Virginia's 2026 numbers come from the April referendum, which is being used as test data. They are not the November general election.",
-  }],
-  "55": [{
-    years: [2026],
-    text: "Wisconsin's 2026 numbers come from the April Supreme Court race, which is being used as test data. They are not the November general election.",
-  }],
 };
 
 export const STAT_LABELS = {

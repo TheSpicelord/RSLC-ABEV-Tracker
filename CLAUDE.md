@@ -228,6 +228,11 @@ caveat that lives only in a commit message, a code comment, or this file is invi
 everyone actually looking at the numbers — which is the whole failure mode it exists to
 prevent.
 
+- **Keep the text to one phrase, two short sentences at the very most.** These render in a
+  hover tooltip, where a paragraph does not get read. State the fact and stop — the
+  reasoning, the measurements and the sources belong here in CLAUDE.md, not in the tooltip.
+  Rewritten to that standard 2026-09-09 (31 notes, longest 100 characters); the smoke test
+  asserts the budget so they cannot creep back.
 - A note may carry `years`, `stats` and/or `chambers`; omitting a key means "all of them".
   `stateDataNotesFor(fips, {year, stat, chamber})` does the filtering. The state header
   narrows by chamber (so MD's house note doesn't appear over its senate); the national
