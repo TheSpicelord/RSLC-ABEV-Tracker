@@ -443,6 +443,32 @@ STATE_MODELS = {
             "ELSE 'toss' END"  # in neither audience -> toss
         ),
     },
+    # MO / AR on the national fallback - no exchange file for either. Added
+    # 2026-09-09 for the backfill; neither is in ACTIVE_STATES and neither has
+    # 2026 feed rows. Plain numeric ids matching DE exactly (MO 163/34,
+    # AR 100/35), so no hd_sql needed.
+    #
+    #  * MISSOURI IS REQUEST-ONLY. ReturnDate and EarlyVoted are NULL on 100% of
+    #    its rows - all 949,818 in 2024 and 270,871 in 2022 - so its Returned, EV
+    #    and Total views are zero and only Requested carries anything. Because it
+    #    is consistent across both years and 1.2M rows this reads as the vendor's
+    #    scope for Missouri rather than a broken export, which is why it is in
+    #    REQUEST_ONLY_STATES in historical_pull rather than being dropped by
+    #    MIN_HISTORY_VOTES. Contrast WY 2022, where one year was broken and the
+    #    other healthy.
+    #  * AR 2024 loses 11.3% of its rows to a NULL district (99,519 of 881,367),
+    #    against 2.4% in 2022. Those voters count statewide but land in no
+    #    district.
+    "MO": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
+    "AR": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
     "NH": {
         "model_table": "VS.NH_Audiences_20260812",
         "join_col": "rnc_reg_id",

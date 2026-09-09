@@ -110,6 +110,7 @@ CHAMBER_DISTRICT_CAPS = {
     "IN": (100, 50), "KY": (100, 38), "TN": (99, 33),
     "MT": (100, 50), "ID": (35, 35), "WY": (62, 31),
     "CA": (80, 40), "WA": (49, 49), "OH": (99, 33),
+    "MO": (163, 34), "AR": (100, 35),
     # New Hampshire's house ids are COUNTY-CODED - one county digit plus a
     # two-digit district (601 = Merrimack 1) - so a single numeric ceiling cannot
     # describe them: 630 is the last Merrimack seat but 740 and 908 are perfectly
@@ -190,6 +191,20 @@ def valid_district(district_id, abbr, chamber_index):
 # A genuinely request-only *historical* year would be suppressed by this rule and
 # would need an explicit exception here.
 MIN_HISTORY_VOTES = 5000
+
+# The exception MIN_HISTORY_VOTES anticipated: a state whose feed carries
+# requests but no votes at all, and is therefore not broken so much as partial.
+# Missouri is the case - ReturnDate and EarlyVoted are NULL on 100% of its rows,
+# all 949,818 in 2024 and 270,871 in 2022. Consistency across both years and 1.2M
+# rows is what separates this from a broken export: WY 2022 had 62 returns
+# against a healthy 2024, which is corruption, while Missouri looks like the
+# vendor's scope for that state.
+#
+# These states keep their request data and publish Returned/EV/Total as zero,
+# which is the same treatment TN already gets in mirror image (early votes only,
+# no requests or returns). Both carry a STATE_DATA_NOTES entry so the zeros read
+# as "not collected" rather than "no turnout".
+REQUEST_ONLY_STATES = {"MO"}
 
 
 def table_for_year(year):
@@ -480,7 +495,7 @@ def build_year_outputs(year, results, updated):
         # daily_update.build_outputs().
         votes = sum(statewide[s][b] for s in ("returned", "ev") for b in BUCKETS)
         total = sum(statewide[s][b] for s in STATS for b in BUCKETS)
-        if not total or votes < MIN_HISTORY_VOTES:
+        if not total or (votes < MIN_HISTORY_VOTES and abbr not in REQUEST_ONLY_STATES):
             why = (f"no rows in the {year} feed" if not total
                    else f"only {votes:,} votes (returned+ev) against {total:,} rows "
                         f"- under the {MIN_HISTORY_VOTES:,} floor, so the year is unusable")

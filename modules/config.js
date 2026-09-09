@@ -286,6 +286,7 @@ export const LEG_REDISTRICTING_NOTES = {
 // WHEN YOU ADD A STATE, ADD ITS EXCEPTIONS HERE. A quirk recorded only in a
 // commit message or a code comment is invisible to everyone looking at the site.
 export const STATE_DATA_NOTES = {
+  "05": [{ years: [2024], text: "11.3% of 2024 records carry no district, so district counts sum short of statewide." }],
   "02": [
     { chambers: ["senate"], text: "Senate districts derived from house district pairs; the feed carries none." },
   ],
@@ -311,6 +312,7 @@ export const STATE_DATA_NOTES = {
     { chambers: ["house"], text: "House subdistricts rebuilt from the voter file; 85-92% attribution in the 18 subdivided districts." },
   ],
   "25": [{ text: "Massachusetts is not loaded: no 2022 records, and its district codes do not map to district numbers." }],
+  "29": [{ text: "Requests only; Missouri's feed carries no return or early-vote records." }],
   "30": [
     { stats: ["ev"], text: "Early-vote records are missing from the feed; Montana does allow in-person absentee voting." },
   ],
