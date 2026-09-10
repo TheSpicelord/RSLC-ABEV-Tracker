@@ -29,26 +29,34 @@ Audited 2026-09-04 against state sources. Deliberate departures from NCSL:
       Kansas Supreme Court upheld the grace period for 2026. Subject to
       further litigation - recheck before the election.
 
-AB RETURN WINDOWS OPEN WHEN RETURNS ACTUALLY START ARRIVING, measured from the
-2022/2024 backfill rather than derived from a statute. The window exists to
-bracket the period this tracker has data for, so the question it answers is
-"when does this state start reporting returns" - not "when are ballots mailed"
-(most sit unreturned for weeks) and not the federal UOCAVA transmission date
-(that is a thin slice of military and overseas ballots, not real reporting).
+THE AB RETURN WINDOW SHOWS THE DOMESTIC MAIL-OUT - when ballots go to ordinary
+voters. Not the 45-day federal date, which covers only military and overseas
+ballots, and not the day returns start arriving. Two states were displaying a
+federal date as if it were domestic:
 
-For each state: the first day cumulative returns reach 0.5% of the cycle total,
-in days before election day, applied to 2026. The raw first return is useless -
+  TX  Was 45 days, which is the FPCA military/overseas deadline. Election Code
+      86.004 puts domestic mailing at about the 37th day (and no later than the
+      30th when the application arrives earlier). Now 37, which the measured
+      first-returns date of 35 days corroborates.
+  PA  Was 10/20 - just the second Tuesday before the election, not a rule at
+      all. Counties begin processing applications 50 days out and issue as
+      ballots become available, so mailing is staggered by county.
+
+Nine states still sit exactly on 45 days, and for eight that is their real
+statute (DE, ID, IN, LA, MI, NJ, OK, VA - LA and OK confirmed by statute text).
+ALABAMA IS THE WEAK ONE: it publishes no mailing start, ballots go out as
+applications are processed, and it has no past-cycle data to check against. Its
+tooltip says so.
+
+MEASURED FIRST-RETURN DATES ARE KEPT AS A BACKUP, in OBSERVED_RETURN_DAYS and on
+each state as `retObserved`, and named in the tooltip. Derived from the
+2022/2024 backfill: the first day cumulative returns reach 0.5% of the cycle
+total, in days before election day. The raw first return is useless for this -
 it lands 200-300 days out in many states (WI 308, MD 307, CA 289) because
-permanent-absentee records carry stale dates. 2024 is used where available,
-2022 otherwise, and the two agree closely: of the 32 states with both, 28 are
-within a week and only IN and OR differ by more than two weeks.
-
-34 states are measured. The other 16 fall back to the mail-out rule and say so
-in the tooltip, KY and MO with a specific reason (placeholder dates, and no
-returns at all, respectively).
-
-  PA  Was 10/20, which is just the second Tuesday before the election and not a
-      Pennsylvania rule at all. Now 9/28, measured, and the same in both cycles.
+permanent-absentee records carry stale dates. The two cycles agree closely,
+which is what makes the number trustworthy: of the 32 states with both, 28 are
+within a week and only IN and OR differ by more than two weeks. 34 of 50 states
+have one.
 
 Known judgment calls (not errors): MN early voting is shown as in-person
 absentee (46 days) rather than NCSL's 18-day direct-to-tabulator window; PA
@@ -113,7 +121,8 @@ def add(st, req, out, due, pm, evs, eve, ev_tip="", req_tip="", out_note=""):
                  ev_tip=ev_tip, req_tip=req_tip, out_note=out_note)
 
 #   state             request     ballots-out  return-due  postmark/return tip                         ev-start  ev-end    ev tooltip
-add("Alabama",        db(7),  db(45), EDAY, "", NONE, NONE, "No in-person early voting; excuse-required absentee only")
+add("Alabama",        db(7),  db(45), EDAY, "", NONE, NONE, "No in-person early voting; excuse-required absentee only", "",
+    "Start is the least certain in this table: Alabama publishes no mailing start — ballots go out as applications are processed — and it has no past-cycle return data to measure against.")
 add("Alaska",         db(10), db(25), da(10), "Postmarked by 11/3, received within 10 days (by 11/13).", db(15), EDAY, "")
 add("Arizona",        db(11), db(27), EDAY, "", db(27), wb(FRI), "", "", "Ballots mailed 24-27 days out (earliest shown).")
 add("Arkansas",       db(7),  db(46), EDAY, "", db(15), wb(MON), "")
@@ -123,7 +132,7 @@ add("Colorado",       AM,     db(32), EDAY, "", db(15), EDAY, "", "Ballot mailed
 add("Connecticut",    db(1),  db(31), EDAY, "", db(15), db(2), "", "New no-excuse mail voting begins 2026.")
 add("Delaware",       db(4),  db(45), EDAY, "", db(12), wb(SUN), "",
     "Deadline to request a ballot be MAILED; in-person issuance continues to noon 11/2.",
-    "Mail-out date approximate. Delaware sets no statutory start — its calendar fixes only the 10/30 deadline to mail — and the state primary is 9/15, so general-election ballots cannot precede it; 9/19 is the federal 45-day UOCAVA transmission date. NCSL Table 7 lists Delaware at 60 days (9/4), which contradicts the state's own calendar.")
+    "Delaware sets no statutory start; its Department of Elections says ballots go out from about mid-September, and the state primary on 9/15 means general-election ballots cannot precede it. NCSL Table 7 lists Delaware at 60 days (9/4), which contradicts the state's own calendar.")
 add("Florida",        db(12), db(40), EDAY, "", db(10), db(3), "Counties may extend early voting to 10/19-11/1 (15th through 2nd day before).", "", "Ballots mailed 33-40 days out (earliest shown).")
 add("Georgia",        db(11), db(29), EDAY, "", wb(MON,4), wb(FRI), "", "", "Ballots mailed 25-29 days out (earliest shown).")
 add("Hawaii",         AM,     db(18), EDAY, "", bb(10), EDAY, "Voter service centers open 10 business days out (10/20); closed Sundays.", "Ballot mailed automatically to all active voters — no application needed.", "Mail-out date approximate; ballots reach voters ~18 days before.")
@@ -162,8 +171,9 @@ add("Rhode Island",   db(21), db(21), EDAY, "", db(20), db(1), "", "", "Mail-out
 add("South Carolina", db(11), db(30), EDAY, "", db(14), db(1), "")
 add("South Dakota",   db(1),  db(46), EDAY, "", db(46), db(1), "")
 add("Tennessee",      db(10), db(30), EDAY, "", db(20), db(5), "", "", "Mail-out date approximate (~30 days before).")
-add("Texas",          db(11), db(45), da(1), "Postmarked by 11/3, received by the day after (11/4).", db(15), db(4),
-    "Early voting runs the 17th through 4th day before; the 17th day (10/17) is a Saturday, so it opens Monday 10/19.")
+add("Texas",          db(11), db(37), da(1), "Postmarked by 11/3, received by the day after (11/4).", db(15), db(4),
+    "Early voting runs the 17th through 4th day before; the 17th day (10/17) is a Saturday, so it opens Monday 10/19.", "",
+    "Domestic ballots go out from about the 37th day; Election Code 86.004 requires mailing by the 30th day when the application arrives earlier. The 45th day applies to FPCA military and overseas ballots only.")
 add("Utah",           AM,     db(21), EDAY, "", db(14), wb(FRI), "", "Ballot mailed automatically to all active voters — no application needed.")
 add("Vermont",        AM,     db(43), EDAY, "", db(43), db(1), "", "Ballot mailed automatically to all active voters (general election).")
 add("Virginia",       db(11), db(45), da(3), "Postmarked by 11/3, received by noon the 3rd day after (11/6).", db(45), wb(SAT), "")
@@ -219,21 +229,16 @@ def build():
         all_mail = r["req"] == AM
         req = AM if all_mail else md(r["req"])
         # Dash (not arrow) between the two dates, matching the EV column.
-        # Open the window when the state actually starts reporting returns.
-        # Where we have measured that, it beats any statutory date; where we have
-        # not, fall back to the mail-out rule and say the date is an estimate.
+        # The window shows the DOMESTIC mail-out - when ballots go to ordinary
+        # voters - not the 45-day federal date, which covers only military and
+        # overseas ballots. The measured first-returns date is carried alongside
+        # as `retObserved` and named in the tooltip, so both are available and
+        # neither silently stands in for the other.
+        opens = r["out"]
+        observed = db(OBSERVED_RETURN_DAYS[abbr]) if abbr in OBSERVED_RETURN_DAYS else None
         notes = [r["pm"], r["out_note"]]
-        if abbr in OBSERVED_RETURN_DAYS:
-            opens = db(OBSERVED_RETURN_DAYS[abbr])
-            notes.append(
-                f"Window opens {md(opens)} — when returns started arriving in "
-                f"{'2024' if abbr not in ('KY',) else '2022'}, not when ballots are mailed."
-            )
-        else:
-            opens = r["out"]
-            why = NO_OBSERVATION_REASON.get(
-                abbr, f"{abbr} has no past-cycle return data to measure against")
-            notes.append(f"Start is an estimate from the mail-out rule: {why}.")
+        if observed:
+            notes.append(f"Returns first arrived around {md(observed)} in past cycles.")
         ret = f"{md(opens)} – {md(r['due'])}"
         ret_tip = "; ".join(x for x in notes if x)
         no_ev = r["evs"] == NONE
@@ -244,6 +249,7 @@ def build():
             "reqEnd": None if all_mail else iso(r["req"]),   # window is [now .. deadline]
             "ret": ret, "retTip": ret_tip,
             "retStart": iso(opens), "retEnd": iso(r["due"]),
+            "retObserved": iso(observed),
             "ev": ev, "evTip": r["ev_tip"],
             "evStart": None if no_ev else iso(r["evs"]),
             "evEnd": None if no_ev else iso(r["eve"]),
