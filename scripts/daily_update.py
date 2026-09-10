@@ -27,10 +27,12 @@ Party buckets come from state model tables (see STATE_MODELS). Voters not
 matched to a model, or in a persuasion/swing segment, count as 'toss'.
 
 Date handling:
-  * requested before Jan 1, 2026 -> timeline bucket "pre2026" (permanent
-    absentee list signups); still counted in district/state totals
-  * returned/ev before Jan 1, 2026, or any date in the future, or NULL ->
-    timeline bucket "unknown"; still counted in totals
+  * any event dated before EARLIER_CUTOFF (Sept 1, 2026) -> timeline bucket
+    "earlier"; still counted in district/state totals. Before the window opens
+    the feed carries permanent-absentee signups and scattered bad dates, none of
+    which deserve a row of their own in the day-by-day table.
+  * any date in the future, past election day, or NULL -> timeline bucket
+    "unknown"; still counted in totals
 """
 
 import argparse
@@ -76,7 +78,11 @@ ABEV_TABLE = "dbo.General_Absentees_2026"
 GENERAL_ELECTION_TYPE = "{abbr} General Election"
 STATS = ("requested", "returned", "ev")
 BUCKETS = ("rep", "dem", "toss")
-CYCLE_START = date(2026, 1, 1)
+# Everything dated before the 2026 ABEV window opens folds into one "Earlier"
+# row. States publish permanent-absentee list signups (PA ~938k, IL ~444k) and
+# occasional garbage dates all year, and each distinct day was becoming its own
+# row in the sidebar's day-by-day table.
+EARLIER_CUTOFF = date(2026, 9, 1)
 
 # Per-state model configuration. bucket_sql must yield 'rep' / 'dem' / 'toss'
 # for a LEFT-JOINed model row alias `m` (NULL columns when unmatched).
@@ -831,6 +837,7 @@ GROUP BY hd, sd, bucket, stat, event_date
 
 
 _LETTERED_DISTRICT = re.compile(r"^(\d+)([A-Z]+)$")
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def normalize_district_id(value):
@@ -872,8 +879,8 @@ def timeline_key(stat, event_date, today, election_day):
         return "unknown"
     if event_date > today or event_date > election_day:
         return "unknown"
-    if event_date < CYCLE_START:
-        return "pre2026" if stat == "requested" else "unknown"
+    if event_date < EARLIER_CUTOFF:
+        return "earlier"
     return event_date.isoformat()
 
 
@@ -950,12 +957,14 @@ def pull_state(conn, abbr, today):
 
 
 def timeline_rows(timeline_stat):
-    """Sorted timeline: pre2026 first, then dates ascending, unknown last."""
+    """Sorted timeline: "earlier" first, then dates ascending, unknown last."""
     def order(key):
-        if key == "pre2026":
-            return (0, "")
         if key == "unknown":
             return (2, "")
+        # Anything that is not an ISO date is a pre-window bucket ("earlier",
+        # or a stale "pre2026" carried in from an unrefreshed file on disk).
+        if not _ISO_DATE.match(str(key or "")):
+            return (0, "")
         return (1, key)
 
     return [

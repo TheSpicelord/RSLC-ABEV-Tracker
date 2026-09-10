@@ -385,13 +385,13 @@ export const DEFAULT_ELECTION_DAY = "2026-11-03";
 // only ones counted.
 export const ELECTION_DAY_OVERRIDES = {};
 
-// First day of each state's ABEV window; chrono tables fold anything earlier
-// into the "Earlier" row. TODO: fill in from a full state-by-state table.
-export const ABEV_START_OVERRIDES = {
-  "02": "2026-01-01", // AK — perm-AB signups, run all cycle
-  "44": "2026-01-01", // RI — perm-AB signups, run all cycle
-  "42": "2026-01-01", // PA — annual mail-in list, requests run all cycle
-};
+// Per-state override for the first day of a state's ABEV window; chrono tables
+// fold anything earlier into the "Earlier" row. Empty because daily_update now
+// buckets every event before Sept 1, 2026 as "earlier" for all states, which is
+// what the three entries that used to live here were approximating. Add a state
+// here only if its window opens later than that and the extra empty leading rows
+// are worth suppressing.
+export const ABEV_START_OVERRIDES = {};
 
 export const STATE_NAME_TO_ABBR = {
   ALABAMA: "AL",
