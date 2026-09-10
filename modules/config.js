@@ -287,9 +287,6 @@ export const LEG_REDISTRICTING_NOTES = {
 // commit message or a code comment is invisible to everyone looking at the site.
 export const STATE_DATA_NOTES = {
   "05": [{ years: [2024], text: "11.3% of 2024 records carry no district, so district counts sum short of statewide." }],
-  "02": [
-    { chambers: ["senate"], text: "Senate districts derived from house district pairs; the feed carries none." },
-  ],
   "06": [
     { chambers: ["senate"], text: "Senate district is blank on ~1.2% of records, missing from the senate rollup only." },
     { years: [2022], text: "2022 model match is 82.5% against 90.4% in 2024, inflating that year's Swing bucket." },
@@ -300,9 +297,6 @@ export const STATE_DATA_NOTES = {
   "16": [
     { years: [2024], stats: ["ev"], text: "2024 early-vote data was never delivered; the zero is a gap, not Idaho law." },
     { chambers: ["senate"], text: "Senate district is blank on 2-4% of records, missing from the senate rollup only." },
-  ],
-  "17": [
-    { years: [2022], chambers: ["senate"], text: "2022 senate districts are rebuilt from the house districts nested inside them." },
   ],
   "21": [
     { years: [2024], text: "Kentucky is absent from the 2024 feed entirely." },
@@ -322,7 +316,6 @@ export const STATE_DATA_NOTES = {
     { chambers: ["house"], text: "Floterial district votes not included in statewide totals." },
   ],
   "36": [{ text: "Assembly and Senate lines changed for 2024; affected districts read N/A for 2022." }],
-  "37": [{ text: "Margins calculated using the national model; no usable North Carolina model exists." }],
   "38": [
     { chambers: ["house"], text: "House district 4's subdistricts (4A/4B) rebuilt from the voter file." },
     { years: [2024], text: "8.7% of 2024 records carry no district, so district counts sum short of statewide." },
