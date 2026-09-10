@@ -29,19 +29,26 @@ Audited 2026-09-04 against state sources. Deliberate departures from NCSL:
       Kansas Supreme Court upheld the grace period for 2026. Subject to
       further litigation - recheck before the election.
 
-AB RETURN WINDOWS OPEN WHEN THE FIRST BALLOT CAN COME BACK, not when the state
-mass-mails. UOCAVA requires every state to transmit ballots to military and
-overseas voters at least 45 days out (9/19/2026), and those are returned as soon
-as they are voted - so no state's return window can open later than that,
-whatever its domestic schedule says. Fixed 2026-09-09: 32 of 50 states were
-starting from the domestic mail-out, which put Pennsylvania at 10/20 when its
-counties begin issuing more than a month earlier. The mass mail-out is still
-the operationally useful date and is kept in the tooltip.
+AB RETURN WINDOWS OPEN WHEN RETURNS ACTUALLY START ARRIVING, measured from the
+2022/2024 backfill rather than derived from a statute. The window exists to
+bracket the period this tracker has data for, so the question it answers is
+"when does this state start reporting returns" - not "when are ballots mailed"
+(most sit unreturned for weeks) and not the federal UOCAVA transmission date
+(that is a thin slice of military and overseas ballots, not real reporting).
 
-  PA  Was 10/20 - the second Tuesday before the election, which is not a
-      Pennsylvania mail-out rule at all. Counties must begin processing
-      mail-ballot applications by 50 days out (9/14) and issue as ballots become
-      available, so PA opens 9/14 and the exact date varies by county.
+For each state: the first day cumulative returns reach 0.5% of the cycle total,
+in days before election day, applied to 2026. The raw first return is useless -
+it lands 200-300 days out in many states (WI 308, MD 307, CA 289) because
+permanent-absentee records carry stale dates. 2024 is used where available,
+2022 otherwise, and the two agree closely: of the 32 states with both, 28 are
+within a week and only IN and OR differ by more than two weeks.
+
+34 states are measured. The other 16 fall back to the mail-out rule and say so
+in the tooltip, KY and MO with a specific reason (placeholder dates, and no
+returns at all, respectively).
+
+  PA  Was 10/20, which is just the second Tuesday before the election and not a
+      Pennsylvania rule at all. Now 9/28, measured, and the same in both cycles.
 
 Known judgment calls (not errors): MN early voting is shown as in-person
 absentee (46 days) rather than NCSL's 18-day direct-to-tabulator window; PA
@@ -150,7 +157,7 @@ add("Oklahoma",       wb(MON,3), db(45), EDAY, "", wb(WED), wb(SAT), "Early voti
 add("Oregon",         AM,     db(20), da(7), "Postmarked by 11/3, received within 7 days (by 11/10).", wb(FRI), EDAY, "In-person options are limited (drop-off / county office).", "Ballot mailed automatically to all active voters — no application needed.")
 add("Pennsylvania",   wb(TUE), db(50), EDAY, "", NONE, NONE,
     "No traditional in-person early voting; over-the-counter mail voting is counted as absentee.", "",
-    "Counties must begin processing mail-ballot applications by 50 days out (9/14) and issue ballots as they become available, so the start varies by county. The old 10/20 figure was the second Tuesday before the election, which is not a Pennsylvania mail-out rule at all.")
+    "Counties begin processing mail-ballot applications 50 days out and issue ballots as they become available, so mailing is staggered by county.")
 add("Rhode Island",   db(21), db(21), EDAY, "", db(20), db(1), "", "", "Mail-out date approximate (~3 weeks before).")
 add("South Carolina", db(11), db(30), EDAY, "", db(14), db(1), "")
 add("South Dakota",   db(1),  db(46), EDAY, "", db(46), db(1), "")
@@ -165,21 +172,41 @@ add("West Virginia",  db(6),  db(46), da(6), "Postmarked by 11/3; counted if rec
 add("Wisconsin",      db(5),  db(47), EDAY, "", db(14), wb(SUN), "Municipal; 10/20 is the earliest allowed — clerks may set a shorter window (later start).")
 add("Wyoming",        db(1),  db(28), EDAY, "", db(28), db(1), "")
 
-# The federal floor on when an absentee ballot can first come back.
+# When returns actually start arriving, measured rather than assumed.
 #
-# UOCAVA (as amended by the MOVE Act) requires every state to TRANSMIT ballots to
-# military and overseas voters at least 45 days before a federal election, and
-# those voters return them as soon as they are voted. So in every state some
-# ballots are in the mail by 9/19/2026 and can be returned from that date - which
-# means no state's AB RETURN window can open later than 45 days out, whatever its
-# domestic mail-out schedule says.
+# The window is meant to bracket the period this tracker has data for, so its
+# start should be the day a state begins REPORTING returns in volume - not the
+# day ballots are mailed, and not the federal UOCAVA transmission date, which
+# only covers a thin slice of military and overseas ballots.
 #
-# This was wrong for 32 of 50 states before 2026-09-09: the return window was
-# being started at the DOMESTIC mass mail-out date, so Pennsylvania read
-# "10/20 - 11/3" when its counties begin issuing ballots more than a month
-# earlier. The mass mail-out is still the operationally interesting date, so it
-# is kept - moved into the tooltip rather than driving the window.
-UOCAVA_TRANSMIT = db(45)
+# Derived from the 2022/2024 backfill: for each state, the first day on which
+# cumulative returns reach 0.5% of that cycle's total, expressed as days before
+# election day. The raw first return is useless for this - it sits 200-300 days
+# out in many states (WI 308, MD 307, CA 289) because permanent-absentee records
+# carry stale dates. The 0.5% mark is where real reporting begins.
+#
+# 2024 is used where available, 2022 otherwise. The two cycles agree closely,
+# which is what makes this trustworthy: 28 of the 32 states with both are within
+# a week of each other, and only IN and OR differ by more than two weeks.
+# Kentucky is excluded because every one of its rows carries the same placeholder
+# date, so it has no usable curve.
+#
+# Regenerate after a backfill changes:
+#     python scripts/build_schedule.py --show-observed
+# Why a state has no measured start, where "no past-cycle data" would be wrong.
+NO_OBSERVATION_REASON = {
+    "KY": "Kentucky's past-cycle rows all carry a single placeholder date, so there "
+          "is no return curve to measure",
+    "MO": "Missouri's feed carries requests but no returns at all, in any cycle",
+}
+
+OBSERVED_RETURN_DAYS = {
+    "AK": 36, "AR": 47, "AZ": 22, "CA": 28, "CT": 33, "DE": 42, "GA": 32,
+    "IA": 32, "ID": 42, "IL": 36, "IN": 43, "KS": 20, "MD": 41, "MI": 36,
+    "MT": 23, "NC": 42, "ND": 39, "NE": 33, "NH": 35, "NJ": 42, "NM": 39,
+    "NY": 39, "OH": 26, "OR": 33, "PA": 36, "RI": 27, "SD": 42, "TX": 35,
+    "UT": 19, "VA": 42, "WA": 22, "WI": 43, "WV": 29, "WY": 29,
+}
 
 
 def iso(d):
@@ -192,18 +219,21 @@ def build():
         all_mail = r["req"] == AM
         req = AM if all_mail else md(r["req"])
         # Dash (not arrow) between the two dates, matching the EV column.
-        # The window opens when the FIRST ballot can come back, which is the
-        # earlier of the state's own mail-out and the federal 45-day transmission
-        # date. Where those differ, say so rather than silently showing a date
-        # the state itself never publishes.
-        opens = min(r["out"], UOCAVA_TRANSMIT)
+        # Open the window when the state actually starts reporting returns.
+        # Where we have measured that, it beats any statutory date; where we have
+        # not, fall back to the mail-out rule and say the date is an estimate.
         notes = [r["pm"], r["out_note"]]
-        if opens < r["out"]:
+        if abbr in OBSERVED_RETURN_DAYS:
+            opens = db(OBSERVED_RETURN_DAYS[abbr])
             notes.append(
-                f"Window opens {md(opens)} because federal law requires military and "
-                f"overseas ballots be sent 45 days out, and those can be returned at "
-                f"once. Most voters here are mailed a ballot around {md(r['out'])}."
+                f"Window opens {md(opens)} — when returns started arriving in "
+                f"{'2024' if abbr not in ('KY',) else '2022'}, not when ballots are mailed."
             )
+        else:
+            opens = r["out"]
+            why = NO_OBSERVATION_REASON.get(
+                abbr, f"{abbr} has no past-cycle return data to measure against")
+            notes.append(f"Start is an estimate from the mail-out rule: {why}.")
         ret = f"{md(opens)} – {md(r['due'])}"
         ret_tip = "; ".join(x for x in notes if x)
         no_ev = r["evs"] == NONE
