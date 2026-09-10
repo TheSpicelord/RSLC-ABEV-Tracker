@@ -2617,10 +2617,10 @@ html.auth-pending main {
 
 /* --- Chrono (Daily/Cumulative) buttons: aqua active state --- */
 .chamber-buttons button.active-chrono {
-  background: linear-gradient(180deg, #0d97a8 0%, #086b7a 100%);
-  border-color: #6fe3f2;
+  background: linear-gradient(180deg, #0f5ea9 0%, #0a477f 100%);
+  border-color: #76b2ff;
   color: #ffffff;
-  box-shadow: 0 0 0 1px rgba(140, 235, 250, 0.35), 0 0 14px rgba(20, 180, 201, 0.42);
+  box-shadow: 0 0 0 1px rgba(150, 205, 255, 0.32), 0 0 14px rgba(20, 112, 201, 0.35);
 }
 
 /* --- Wrapped, vertically centered two-line table headers --- */
@@ -2833,10 +2833,10 @@ html.auth-pending main {
 }
 
 .detail-chrono-btn.active-chrono {
-  background: linear-gradient(180deg, #0d97a8 0%, #086b7a 100%);
-  border-color: #6fe3f2;
+  background: linear-gradient(180deg, #0f5ea9 0%, #0a477f 100%);
+  border-color: #76b2ff;
   color: #ffffff;
-  box-shadow: 0 0 0 1px rgba(140, 235, 250, 0.35), 0 0 12px rgba(20, 180, 201, 0.4);
+  box-shadow: 0 0 0 1px rgba(150, 205, 255, 0.32), 0 0 12px rgba(20, 112, 201, 0.35);
 }
 
 /* --- Statewide Districts / Daily / Weekly selector --- */
@@ -2974,10 +2974,10 @@ html.auth-pending main {
 }
 
 .trend-tab-open {
-  background: linear-gradient(180deg, #0d97a8 0%, #086b7a 100%);
-  border-color: #6fe3f2;
+  background: linear-gradient(180deg, #0f5ea9 0%, #0a477f 100%);
+  border-color: #76b2ff;
   color: #ffffff;
-  box-shadow: 0 0 0 1px rgba(140, 235, 250, 0.35), 0 0 14px rgba(20, 180, 201, 0.42);
+  box-shadow: 0 0 0 1px rgba(150, 205, 255, 0.32), 0 0 14px rgba(20, 112, 201, 0.35);
 }
 
 .trend-tab-arrow {
@@ -3034,7 +3034,7 @@ html.auth-pending main {
 
 .trend-end-toggle input {
   margin: 0;
-  accent-color: #0d97a8;
+  accent-color: #257bf8;
   cursor: pointer;
 }
 
@@ -3070,7 +3070,7 @@ html.auth-pending main {
 
 .trend-year-toggle input {
   margin: 0;
-  accent-color: #0d97a8;
+  accent-color: #257bf8;
   cursor: pointer;
 }
 

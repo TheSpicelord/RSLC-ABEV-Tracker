@@ -29,6 +29,20 @@ Audited 2026-09-04 against state sources. Deliberate departures from NCSL:
       Kansas Supreme Court upheld the grace period for 2026. Subject to
       further litigation - recheck before the election.
 
+AB RETURN WINDOWS OPEN WHEN THE FIRST BALLOT CAN COME BACK, not when the state
+mass-mails. UOCAVA requires every state to transmit ballots to military and
+overseas voters at least 45 days out (9/19/2026), and those are returned as soon
+as they are voted - so no state's return window can open later than that,
+whatever its domestic schedule says. Fixed 2026-09-09: 32 of 50 states were
+starting from the domestic mail-out, which put Pennsylvania at 10/20 when its
+counties begin issuing more than a month earlier. The mass mail-out is still
+the operationally useful date and is kept in the tooltip.
+
+  PA  Was 10/20 - the second Tuesday before the election, which is not a
+      Pennsylvania mail-out rule at all. Counties must begin processing
+      mail-ballot applications by 50 days out (9/14) and issue as ballots become
+      available, so PA opens 9/14 and the exact date varies by county.
+
 Known judgment calls (not errors): MN early voting is shown as in-person
 absentee (46 days) rather than NCSL's 18-day direct-to-tabulator window; PA
 shows no early voting because its over-the-counter mail voting is counted as
@@ -134,7 +148,9 @@ add("North Dakota",   db(1),  db(40), EDAY, "", db(15), db(1), "County option �
 add("Ohio",           db(7),  db(29), EDAY, "", db(29), db(2), "")
 add("Oklahoma",       wb(MON,3), db(45), EDAY, "", wb(WED), wb(SAT), "Early voting ends at 2pm Saturday (10/31).")
 add("Oregon",         AM,     db(20), da(7), "Postmarked by 11/3, received within 7 days (by 11/10).", wb(FRI), EDAY, "In-person options are limited (drop-off / county office).", "Ballot mailed automatically to all active voters — no application needed.")
-add("Pennsylvania",   wb(TUE), wb(TUE,2), EDAY, "", NONE, NONE, "No traditional in-person early voting; over-the-counter mail voting is counted as absentee.")
+add("Pennsylvania",   wb(TUE), db(50), EDAY, "", NONE, NONE,
+    "No traditional in-person early voting; over-the-counter mail voting is counted as absentee.", "",
+    "Counties must begin processing mail-ballot applications by 50 days out (9/14) and issue ballots as they become available, so the start varies by county. The old 10/20 figure was the second Tuesday before the election, which is not a Pennsylvania mail-out rule at all.")
 add("Rhode Island",   db(21), db(21), EDAY, "", db(20), db(1), "", "", "Mail-out date approximate (~3 weeks before).")
 add("South Carolina", db(11), db(30), EDAY, "", db(14), db(1), "")
 add("South Dakota",   db(1),  db(46), EDAY, "", db(46), db(1), "")
@@ -149,6 +165,23 @@ add("West Virginia",  db(6),  db(46), da(6), "Postmarked by 11/3; counted if rec
 add("Wisconsin",      db(5),  db(47), EDAY, "", db(14), wb(SUN), "Municipal; 10/20 is the earliest allowed — clerks may set a shorter window (later start).")
 add("Wyoming",        db(1),  db(28), EDAY, "", db(28), db(1), "")
 
+# The federal floor on when an absentee ballot can first come back.
+#
+# UOCAVA (as amended by the MOVE Act) requires every state to TRANSMIT ballots to
+# military and overseas voters at least 45 days before a federal election, and
+# those voters return them as soon as they are voted. So in every state some
+# ballots are in the mail by 9/19/2026 and can be returned from that date - which
+# means no state's AB RETURN window can open later than 45 days out, whatever its
+# domestic mail-out schedule says.
+#
+# This was wrong for 32 of 50 states before 2026-09-09: the return window was
+# being started at the DOMESTIC mass mail-out date, so Pennsylvania read
+# "10/20 - 11/3" when its counties begin issuing ballots more than a month
+# earlier. The mass mail-out is still the operationally interesting date, so it
+# is kept - moved into the tooltip rather than driving the window.
+UOCAVA_TRANSMIT = db(45)
+
+
 def iso(d):
     return d.isoformat() if isinstance(d, date) else None
 
@@ -159,8 +192,20 @@ def build():
         all_mail = r["req"] == AM
         req = AM if all_mail else md(r["req"])
         # Dash (not arrow) between the two dates, matching the EV column.
-        ret = f"{md(r['out'])} – {md(r['due'])}"
-        ret_tip = "; ".join(x for x in (r["pm"], r["out_note"]) if x)
+        # The window opens when the FIRST ballot can come back, which is the
+        # earlier of the state's own mail-out and the federal 45-day transmission
+        # date. Where those differ, say so rather than silently showing a date
+        # the state itself never publishes.
+        opens = min(r["out"], UOCAVA_TRANSMIT)
+        notes = [r["pm"], r["out_note"]]
+        if opens < r["out"]:
+            notes.append(
+                f"Window opens {md(opens)} because federal law requires military and "
+                f"overseas ballots be sent 45 days out, and those can be returned at "
+                f"once. Most voters here are mailed a ballot around {md(r['out'])}."
+            )
+        ret = f"{md(opens)} – {md(r['due'])}"
+        ret_tip = "; ".join(x for x in notes if x)
         no_ev = r["evs"] == NONE
         ev = "None" if no_ev else f"{md(r['evs'])} – {md(r['eve'])}"
         out[fips] = {
@@ -168,7 +213,7 @@ def build():
             "request": req, "requestTip": r["req_tip"],
             "reqEnd": None if all_mail else iso(r["req"]),   # window is [now .. deadline]
             "ret": ret, "retTip": ret_tip,
-            "retStart": iso(r["out"]), "retEnd": iso(r["due"]),
+            "retStart": iso(opens), "retEnd": iso(r["due"]),
             "ev": ev, "evTip": r["ev_tip"],
             "evStart": None if no_ev else iso(r["evs"]),
             "evEnd": None if no_ev else iso(r["eve"]),
