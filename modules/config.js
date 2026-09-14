@@ -302,10 +302,12 @@ export const STATE_DATA_NOTES = {
     { years: [2024], text: "Kentucky is absent from the 2024 feed entirely." },
     { years: [2022], text: "All 2022 records share one placeholder date; totals are sound, daily and trend views are not." },
   ],
+  "22": [{ text: "Past cycles omitted: Louisiana's feed holds its December runoff, not the November general." }],
   "24": [
     { chambers: ["house"], text: "House subdistricts rebuilt from the voter file; 85-92% attribution in the 18 subdivided districts." },
   ],
   "25": [{ text: "Massachusetts is not loaded: no 2022 records, and its district codes do not map to district numbers." }],
+  "28": [{ years: [2022], text: "Mississippi is absent from the 2022 feed entirely." }],
   "29": [{ text: "Requests only; Missouri's feed carries no return or early-vote records." }],
   "30": [
     { stats: ["ev"], text: "Early-vote records are missing from the feed; Montana does allow in-person absentee voting." },
@@ -321,6 +323,7 @@ export const STATE_DATA_NOTES = {
     { years: [2024], text: "8.7% of 2024 records carry no district, so district counts sum short of statewide." },
   ],
   "39": [{ text: "Margins calculated using generic congressional ballot model." }],
+  "40": [{ stats: ["ev"], text: "Early-vote records are missing from the feed; Oklahoma does allow in-person early voting." }],
   "41": [
     { stats: ["ev"], text: "Oregon votes entirely by mail; Early Vote is zero by design." },
     { years: [2022], stats: ["requested"], text: "No request dates in the 2022 feed." },
@@ -328,6 +331,7 @@ export const STATE_DATA_NOTES = {
   "44": [
     { stats: ["returned", "ev"], text: "All records are permanent-absentee signups; Returned and Early Vote are zero by design." },
   ],
+  "45": [{ years: [2024], text: "2024 is early-vote only; the feed carries no request or return records that year." }],
   "46": [
     { chambers: ["house"], text: "House subdistricts (26A/B, 28A/B) rebuilt from the voter file." },
   ],

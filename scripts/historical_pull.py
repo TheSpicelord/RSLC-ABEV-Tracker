@@ -151,17 +151,35 @@ MD_SUBDIVIDED_HOUSE_DISTRICTS = {
     "001", "002", "007", "009", "011", "012", "027", "029", "030",
     "033", "034", "035", "037", "038", "042", "043", "044", "047",
 }
+# Congressional seats per state under the 2020 apportionment (in effect for the
+# 2022, 2024 and 2026 elections). Same job as CHAMBER_DISTRICT_CAPS above and the
+# historical feeds need it just as badly: Georgia's 2022 CongressionalDistrict
+# column carries 32 distinct values for a 14-seat state. A single-district state
+# caps at 1, which is correct - its at-large seat is district 1.
+CONGRESSIONAL_SEATS = {
+    "AL": 7, "AK": 1, "AZ": 9, "AR": 4, "CA": 52, "CO": 8, "CT": 5, "DE": 1,
+    "FL": 28, "GA": 14, "HI": 2, "ID": 2, "IL": 17, "IN": 9, "IA": 4, "KS": 4,
+    "KY": 6, "LA": 6, "ME": 2, "MD": 8, "MA": 9, "MI": 13, "MN": 8, "MS": 4,
+    "MO": 8, "MT": 2, "NE": 3, "NV": 4, "NH": 2, "NJ": 12, "NM": 3, "NY": 26,
+    "NC": 14, "ND": 1, "OH": 15, "OK": 5, "OR": 6, "PA": 17, "RI": 2, "SC": 7,
+    "SD": 1, "TN": 9, "TX": 38, "UT": 4, "VT": 1, "VA": 11, "WA": 10, "WV": 2,
+    "WI": 8, "WY": 1,
+}
+
 # Fallback for a state with no entry: keep anything that could plausibly be a
 # district number, drop the obvious sentinels.
 DEFAULT_DISTRICT_CAP = 400
 
 
 def valid_district(district_id, abbr, chamber_index):
-    """chamber_index: 0 house, 1 senate. Non-numeric ids always pass."""
+    """chamber_index: 0 house, 1 senate, 2 congressional. Non-numeric ids pass."""
     if not district_id:
         return False
     if not district_id.isdigit():
         return True
+    if chamber_index == 2:
+        seats = CONGRESSIONAL_SEATS.get(abbr)
+        return True if seats is None else 1 <= int(district_id) <= seats
     allow = CHAMBER_DISTRICT_ALLOWLISTS.get((abbr, chamber_index))
     if allow is not None:
         return district_id in allow
@@ -206,13 +224,32 @@ MIN_HISTORY_VOTES = 5000
 # as "not collected" rather than "no turnout".
 REQUEST_ONLY_STATES = {"MO"}
 
+# (abbr, year) pairs whose feed holds a DIFFERENT ELECTION than that November's
+# general, so the rows are real but not comparable to anything else in the year.
+# The MIN_HISTORY_VOTES floor cannot catch these - the vote counts are perfectly
+# healthy, they just belong to the wrong contest.
+#
+# Louisiana is the whole list, and it fails in both cycles. LA runs a two-round
+# system, so the December runoff is a separate election from the November general:
+#   * 2024 is labelled honestly - "LA Runoff Election", 39,286 rows, every date in
+#     2024-12-02..03, against the Dec 7 runoff.
+#   * 2022 is labelled "General Election" and is NOT one. Its 108,447 rows carry
+#     EarlyVoted dates of 2022-11-29..12-05 - three weeks AFTER the Nov 8 general
+#     and squarely in the early-vote window for the Dec 10 runoff. The label is
+#     what makes this dangerous: nothing but the dates gives it away.
+# Neither year carries a single RequestDate, and a runoff electorate is a fraction
+# of a general's, so publishing either as "Louisiana 2022/2024" would misstate both
+# the size and the timing of Louisiana absentee voting. Re-check if the vendor ever
+# loads LA's actual November files.
+WRONG_ELECTION_STATE_YEARS = {("LA", 2022), ("LA", 2024)}
+
 
 def table_for_year(year):
     return f"dbo.General_Absentees_{year}"
 
 
 def historical_query(table, model, has_election_type_filter):
-    """One aggregate query per state: counts by district pair, stat, bucket, date.
+    """One aggregate query per state: counts by district triple, stat, bucket, date.
 
     Mirrors daily_update.state_query but against a historical table and with an
     optional ElectionType filter. Aggregation is entirely server-side, so only
@@ -226,6 +263,7 @@ WITH scored AS (
     SELECT
         {hd_sql} AS hd,
         a.SenateDistrict AS sd,
+        a.CongressionalDistrict AS cd,
         a.RequestDate,
         a.ReturnDate,
         a.EarlyVoted,
@@ -237,15 +275,15 @@ WITH scored AS (
     WHERE a.State = ?{filter_sql}
 ),
 events AS (
-    SELECT hd, sd, bucket, 'requested' AS stat, RequestDate AS event_date FROM scored WHERE RequestDate IS NOT NULL
+    SELECT hd, sd, cd, bucket, 'requested' AS stat, RequestDate AS event_date FROM scored WHERE RequestDate IS NOT NULL
     UNION ALL
-    SELECT hd, sd, bucket, 'returned', ReturnDate FROM scored WHERE ReturnDate IS NOT NULL
+    SELECT hd, sd, cd, bucket, 'returned', ReturnDate FROM scored WHERE ReturnDate IS NOT NULL
     UNION ALL
-    SELECT hd, sd, bucket, 'ev', EarlyVoted FROM scored WHERE EarlyVoted IS NOT NULL
+    SELECT hd, sd, cd, bucket, 'ev', EarlyVoted FROM scored WHERE EarlyVoted IS NOT NULL
 )
-SELECT hd, sd, bucket, stat, event_date, COUNT(*) AS n
+SELECT hd, sd, cd, bucket, stat, event_date, COUNT(*) AS n
 FROM events
-GROUP BY hd, sd, bucket, stat, event_date
+GROUP BY hd, sd, cd, bucket, stat, event_date
 """
 
 
@@ -349,6 +387,7 @@ def pull_state_year(conn, table, abbr, model, ycfg):
 
     house = defaultdict(empty_stat_buckets)
     senate = defaultdict(empty_stat_buckets)
+    cong = defaultdict(empty_stat_buckets)
     statewide = empty_stat_buckets()
     timeline = {s: defaultdict(lambda: {b: 0 for b in BUCKETS}) for s in STATS}
 
@@ -357,8 +396,9 @@ def pull_state_year(conn, table, abbr, model, ycfg):
 
     house_tl = defaultdict(district_timeline_factory)
     senate_tl = defaultdict(district_timeline_factory)
+    cong_tl = defaultdict(district_timeline_factory)
 
-    for hd, sd, bucket, stat, event_date, n in rows:
+    for hd, sd, cd, bucket, stat, event_date, n in rows:
         bucket = str(bucket or "").strip()
         stat = str(stat or "").strip()
         if bucket not in BUCKETS or stat not in STATS:
@@ -366,6 +406,7 @@ def pull_state_year(conn, table, abbr, model, ycfg):
         n = int(n or 0)
         hd_id = normalize_district_id(hd)
         sd_id = normalize_district_id(sd)
+        cd_id = normalize_district_id(cd)
         # Alaska's feed carries no SenateDistrict at all - in 2024 it is NULL on
         # every one of 160,181 rows - so without this the state backfills 40
         # house districts and an empty senate. daily_update.py has always done
@@ -387,6 +428,8 @@ def pull_state_year(conn, table, abbr, model, ycfg):
             hd_id = ""
         if not valid_district(sd_id, abbr, 1):
             sd_id = ""
+        if not valid_district(cd_id, abbr, 2):
+            cd_id = ""
         date_key = timeline_key(stat, event_date, cycle_start, election_day)
         if hd_id:
             house[hd_id][stat][bucket] += n
@@ -394,6 +437,9 @@ def pull_state_year(conn, table, abbr, model, ycfg):
         if sd_id:
             senate[sd_id][stat][bucket] += n
             senate_tl[sd_id][stat][date_key][bucket] += n
+        if cd_id:
+            cong[cd_id][stat][bucket] += n
+            cong_tl[cd_id][stat][date_key][bucket] += n
         statewide[stat][bucket] += n
         timeline[stat][date_key][bucket] += n
 
@@ -408,7 +454,7 @@ def pull_state_year(conn, table, abbr, model, ycfg):
         if made_d:
             print(f"  [{abbr}] +{len(made_d)} floterial districts aggregated from their base districts")
 
-    return house, senate, statewide, timeline, house_tl, senate_tl
+    return house, senate, cong, statewide, timeline, house_tl, senate_tl, cong_tl
 
 
 def timeline_rows(timeline_stat):
@@ -446,7 +492,7 @@ def build_year_outputs(year, results, updated):
     (see load_existing) — only the states in `results` are replaced."""
     out_dir = OUT_BASE / str(year)
     out_dir.mkdir(parents=True, exist_ok=True)
-    entry = {"house": [], "senate": []}
+    entry = {"house": [], "senate": [], "cong": []}
 
     # Seed from disk, keyed so this run's states overwrite their own entries and
     # leave everyone else's alone.
@@ -456,9 +502,10 @@ def build_year_outputs(year, results, updated):
 
     for abbr in sorted(results):
         fips = ABBR_TO_FIPS[abbr]
-        house, senate, statewide, timeline, house_tl, senate_tl = results[abbr]
+        house, senate, cong, statewide, timeline, house_tl, senate_tl, cong_tl = results[abbr]
 
-        for chamber, dmap, tlmap in (("house", house, house_tl), ("senate", senate, senate_tl)):
+        for chamber, dmap, tlmap in (("house", house, house_tl), ("senate", senate, senate_tl),
+                                     ("cong", cong, cong_tl)):
             if not dmap:
                 continue
             out = {
@@ -495,8 +542,11 @@ def build_year_outputs(year, results, updated):
         # daily_update.build_outputs().
         votes = sum(statewide[s][b] for s in ("returned", "ev") for b in BUCKETS)
         total = sum(statewide[s][b] for s in STATS for b in BUCKETS)
-        if not total or (votes < MIN_HISTORY_VOTES and abbr not in REQUEST_ONLY_STATES):
-            why = (f"no rows in the {year} feed" if not total
+        wrong_election = (abbr, year) in WRONG_ELECTION_STATE_YEARS
+        if wrong_election or not total or (votes < MIN_HISTORY_VOTES and abbr not in REQUEST_ONLY_STATES):
+            why = ("the feed holds a different election than that November's general"
+                   if wrong_election
+                   else f"no rows in the {year} feed" if not total
                    else f"only {votes:,} votes (returned+ev) against {total:,} rows "
                         f"- under the {MIN_HISTORY_VOTES:,} floor, so the year is unusable")
             print(f"  [{abbr}] {why} - omitting {year} entirely.")
@@ -506,7 +556,7 @@ def build_year_outputs(year, results, updated):
             # rebuilt by globbing this directory, so a stale file would otherwise
             # keep the year alive in the index even though it is gone from
             # national.json - a half-present state is worse than an absent one.
-            for chamber in ("house", "senate"):
+            for chamber in ("house", "senate", "cong"):
                 stale = out_dir / f"{abbr.lower()}_{chamber}.json"
                 if stale.exists():
                     stale.unlink()
@@ -525,7 +575,7 @@ def build_year_outputs(year, results, updated):
 
     # The index lists whatever chamber files actually exist for the year, rather
     # than only the ones this run happened to write — the directory is the truth.
-    for chamber in ("house", "senate"):
+    for chamber in ("house", "senate", "cong"):
         entry[chamber] = sorted(
             f"data/abev/history/{year}/{path.name}"
             for path in out_dir.glob(f"*_{chamber}.json")
@@ -541,7 +591,8 @@ def build_year_outputs(year, results, updated):
     )
     entry["national"] = f"data/abev/history/{year}/national.json"
     entry["timeline"] = f"data/abev/history/{year}/timeline.json"
-    print(f"  {year}: {len(entry['house'])} house + {len(entry['senate'])} senate files, "
+    print(f"  {year}: {len(entry['house'])} house + {len(entry['senate'])} senate "
+          f"+ {len(entry['cong'])} cong files, "
           f"{len(states_out)} states ({', '.join(sorted(states_by_abbr))}).")
     return entry
 

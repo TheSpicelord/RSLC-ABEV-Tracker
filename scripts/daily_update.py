@@ -534,6 +534,36 @@ STATE_MODELS = {
         "join_col": "dt_regid",
         "bucket_sql": NATIONAL_BUCKET_SQL,
     },
+    # SC / LA / OK / MS on the national fallback - no exchange file for any of
+    # them. Added 2026-09-14 purely to backfill history; none is in ACTIVE_STATES
+    # and none has 2026 feed rows.
+    #  * LA and MS elect their legislatures in ODD years (2023, 2027), so 2022 and
+    #    2024 carry no state-leg race at all. That does not block this pull - the
+    #    numbers are absentee/EV turnout counted by the voter's district, not race
+    #    results - but read them that way, the same caveat VA already carries.
+    #  * MS has NO 2022 rows in General_Absentees_2022 (the table carries 47
+    #    states, missing MA and MS), so it backfills 2024 only. build_year_outputs
+    #    omits a state with no rows for a year, so this needs no special casing.
+    "SC": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
+    "LA": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
+    "OK": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
+    "MS": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
     "NH": {
         # Reads the indexed projection, not the vendor table - see
         # create_model_indexes.sql. Same rows, same values, keyed properly.
@@ -794,7 +824,12 @@ def connect(cfg):
 
 
 def state_query(model):
-    """One aggregate query per state: counts by district pair, stat, bucket, event date.
+    """One aggregate query per state: counts by district triple, stat, bucket, event date.
+
+    Groups by house, senate AND congressional district so one pass feeds all three
+    rollups. CD is carried even where no congressional view exists yet: adding the
+    column later would mean re-pulling every state, and Florida alone is 15.4M
+    historical rows.
 
     Source table and an optional extra WHERE filter are per-state (default: the
     General feed, no filter). No state overrides them today; the hooks stay for
@@ -813,6 +848,7 @@ WITH scored AS (
     SELECT
         {hd_sql} AS hd,
         a.SenateDistrict AS sd,
+        a.CongressionalDistrict AS cd,
         a.RequestDate,
         a.ReturnDate,
         a.EarlyVoted,
@@ -824,15 +860,15 @@ WITH scored AS (
     WHERE a.State = ? AND a.ElectionType = ? {extra_where}
 ),
 events AS (
-    SELECT hd, sd, bucket, 'requested' AS stat, RequestDate AS event_date FROM scored WHERE RequestDate IS NOT NULL
+    SELECT hd, sd, cd, bucket, 'requested' AS stat, RequestDate AS event_date FROM scored WHERE RequestDate IS NOT NULL
     UNION ALL
-    SELECT hd, sd, bucket, 'returned', ReturnDate FROM scored WHERE ReturnDate IS NOT NULL
+    SELECT hd, sd, cd, bucket, 'returned', ReturnDate FROM scored WHERE ReturnDate IS NOT NULL
     UNION ALL
-    SELECT hd, sd, bucket, 'ev', EarlyVoted FROM scored WHERE EarlyVoted IS NOT NULL
+    SELECT hd, sd, cd, bucket, 'ev', EarlyVoted FROM scored WHERE EarlyVoted IS NOT NULL
 )
-SELECT hd, sd, bucket, stat, event_date, COUNT(*) AS n
+SELECT hd, sd, cd, bucket, stat, event_date, COUNT(*) AS n
 FROM events
-GROUP BY hd, sd, bucket, stat, event_date
+GROUP BY hd, sd, cd, bucket, stat, event_date
 """
 
 
@@ -909,6 +945,7 @@ def pull_state(conn, abbr, today):
     derive_senate = model.get("derive_senate")
     house = defaultdict(empty_stat_buckets)
     senate = defaultdict(empty_stat_buckets)
+    cong = defaultdict(empty_stat_buckets)
     statewide = empty_stat_buckets()
     timeline = {s: defaultdict(lambda: {b: 0 for b in BUCKETS}) for s in STATS}
 
@@ -917,8 +954,9 @@ def pull_state(conn, abbr, today):
 
     house_tl = defaultdict(district_timeline_factory)
     senate_tl = defaultdict(district_timeline_factory)
+    cong_tl = defaultdict(district_timeline_factory)
 
-    for hd, sd, bucket, stat, event_date, n in rows:
+    for hd, sd, cd, bucket, stat, event_date, n in rows:
         bucket = str(bucket or "").strip()
         stat = str(stat or "").strip()
         if bucket not in BUCKETS or stat not in STATS:
@@ -926,6 +964,7 @@ def pull_state(conn, abbr, today):
         n = int(n or 0)
         hd_id = normalize_district_id(hd)
         sd_id = normalize_district_id(sd)
+        cd_id = normalize_district_id(cd)
         if not sd_id and derive_senate and hd_id:
             sd_id = derive_senate(hd_id)
         date_key = timeline_key(stat, event_date, today, election_day)
@@ -935,6 +974,9 @@ def pull_state(conn, abbr, today):
         if sd_id:
             senate[sd_id][stat][bucket] += n
             senate_tl[sd_id][stat][date_key][bucket] += n
+        if cd_id:
+            cong[cd_id][stat][bucket] += n
+            cong_tl[cd_id][stat][date_key][bucket] += n
         statewide[stat][bucket] += n
         timeline[stat][date_key][bucket] += n
 
@@ -953,7 +995,7 @@ def pull_state(conn, abbr, today):
         if made_d:
             print(f"[{abbr}] +{len(made_d)} floterial districts aggregated from their base districts")
 
-    return house, senate, statewide, timeline, house_tl, senate_tl
+    return house, senate, cong, statewide, timeline, house_tl, senate_tl, cong_tl
 
 
 def timeline_rows(timeline_stat):
@@ -975,15 +1017,16 @@ def timeline_rows(timeline_stat):
 
 def build_outputs(results, updated):
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_index = {"house": [], "senate": []}
+    out_index = {"house": [], "senate": [], "cong": []}
     states_out = []
     timeline_out = {}
 
     for abbr in sorted(results):
         fips = ABBR_TO_FIPS[abbr]
-        house, senate, statewide, timeline, house_tl, senate_tl = results[abbr]
+        house, senate, cong, statewide, timeline, house_tl, senate_tl, cong_tl = results[abbr]
 
-        for chamber, dmap, tlmap in (("house", house, house_tl), ("senate", senate, senate_tl)):
+        for chamber, dmap, tlmap in (("house", house, house_tl), ("senate", senate, senate_tl),
+                                     ("cong", cong, cong_tl)):
             if not dmap:
                 continue
             out = {
@@ -1160,9 +1203,13 @@ def load_prior_result(abbr):
             timeline[stat] = rebuilt
         house, house_tl = _load_chamber_maps(abbr, "house")
         senate, senate_tl = _load_chamber_maps(abbr, "senate")
+        # cong may legitimately be missing: a state whose files predate the
+        # congressional rollup has no *_cong.json, and an empty map simply means
+        # it publishes none until its next real pull.
+        cong, cong_tl = _load_chamber_maps(abbr, "cong")
         if not house and not senate:
             return None
-        return house, senate, statewide, timeline, house_tl, senate_tl
+        return house, senate, cong, statewide, timeline, house_tl, senate_tl, cong_tl
     except Exception:
         return None
 
