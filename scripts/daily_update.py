@@ -1015,11 +1015,26 @@ def timeline_rows(timeline_stat):
     ]
 
 
+def load_existing_states(path, key):
+    """Read {key: ...} out of an output file already on disk, or empty if absent."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8")).get(key) or ([] if key == "states" else {})
+    except Exception:  # noqa: BLE001
+        return [] if key == "states" else {}
+
+
 def build_outputs(results, updated):
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_index = {"house": [], "senate": [], "cong": []}
-    states_out = []
-    timeline_out = {}
+    # Seed national/timeline from disk so a PARTIAL run (--states) replaces only
+    # its own states instead of truncating the file to them. Without this,
+    # `--states AK,IL,MN,RI` rewrote national.json with four states and silently
+    # dropped the other six from the published site - the same bug
+    # historical_pull.build_year_outputs was fixed for. The per-chamber files were
+    # never at risk (they are per state); only these three shared files are.
+    prior_nat = load_existing_states(OUT_DIR / "national.json", "states")
+    states_by_abbr = {s["state_abbr"]: s for s in prior_nat if s.get("state_abbr")}
+    timeline_out = dict(load_existing_states(OUT_DIR / "timeline.json", "states"))
 
     for abbr in sorted(results):
         fips = ABBR_TO_FIPS[abbr]
@@ -1059,15 +1074,28 @@ def build_outputs(results, updated):
         # has something, and let a later run pick it up.
         if not any(statewide[stat][b] for stat in STATS for b in BUCKETS):
             print(f"[{abbr}] no activity in the feed yet - omitted from national/timeline.")
+            # pop() as well as skip: states_by_abbr is seeded from the file on
+            # disk, so a state that goes quiet would otherwise keep a stale row.
+            states_by_abbr.pop(abbr, None)
+            timeline_out.pop(fips, None)
             continue
 
-        states_out.append({
+        states_by_abbr[abbr] = {
             "state_fips": fips,
             "state_abbr": abbr,
             "state_name": ABBR_TO_NAME.get(abbr, abbr),
             **statewide,
-        })
+        }
         timeline_out[fips] = {stat: timeline_rows(timeline[stat]) for stat in STATS}
+
+    states_out = [states_by_abbr[a] for a in sorted(states_by_abbr)]
+
+    # Same reasoning for the index: list what is actually on disk, not just what
+    # this run wrote, so a partial run cannot un-publish another state's files.
+    for chamber in ("house", "senate", "cong"):
+        out_index[chamber] = sorted(
+            f"data/abev/{p.name}" for p in OUT_DIR.glob(f"*_{chamber}.json")
+        )
 
     (OUT_DIR / "national.json").write_text(
         json.dumps({"updated": updated, "states": states_out}, separators=(",", ":")),
@@ -1090,7 +1118,8 @@ def build_outputs(results, updated):
         encoding="utf-8",
     )
 
-    print(f"Wrote {len(out_index['house'])} house + {len(out_index['senate'])} senate files, "
+    print(f"Wrote {len(out_index['house'])} house + {len(out_index['senate'])} senate "
+          f"+ {len(out_index['cong'])} cong files, "
           f"{len(states_out)} states in national.json + timeline.json.")
 
 
