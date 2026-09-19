@@ -258,6 +258,25 @@ REQUEST_ONLY_STATES = {"MO"}
 # loads LA's actual November files.
 WRONG_ELECTION_STATE_YEARS = {("LA", 2022), ("LA", 2024)}
 
+# (abbr, year) pairs that ARE the right election but whose district columns cannot
+# be mapped to real districts, so the rows cannot be placed on a map at all.
+#
+# Massachusetts 2024 is the whole list. MA is already the one state whose feed
+# district NUMBER is unusable in 2026 (see ma_house_districts.py) - the 2024 file
+# is worse, carrying a THIRD scheme that matches nothing:
+#   * SenateDistrict ranges 0..334 where Massachusetts has 40 seats, with values
+#     like 329 and 325 sitting beside plausible ones like 23 and 27.
+#   * LegislativeDistrict ranges 0..337 across 161 distinct values for 160 seats.
+#   * Against the 2026 voter file the house number agrees on 0.3% of rows and the
+#     senate on 12.0% - and those are coincidences, not attributions.
+# Pulled anyway it produced 63 of 160 house and 16 of 40 senate districts, every
+# one of them a number that happened to land in range. That is precisely the
+# California "0001" failure mode - plausible output, wrong districts - so the year
+# is dropped rather than published. The STATEWIDE totals are fine, but this project
+# has no statewide-only history shape, and a half-populated map is worse than none.
+# Re-check if the vendor ever reloads MA 2024 with real district codes.
+UNMAPPABLE_DISTRICTS_STATE_YEARS = {("MA", 2024)}
+
 
 def table_for_year(year):
     return f"dbo.General_Absentees_{year}"
@@ -272,12 +291,15 @@ def historical_query(table, model, has_election_type_filter):
     """
     filter_sql = " AND a.ElectionType = ?" if has_election_type_filter else ""
     hd_sql = model.get("hd_sql", "a.LegislativeDistrict")
+    # Senate twin of hd_sql, kept in step with daily_update.state_query so a
+    # state behaves identically in the backfill and in 2026. Only MA uses it.
+    sd_sql = model.get("sd_sql", "a.SenateDistrict")
     extra_join = model.get("extra_join", "")
     return f"""
 WITH scored AS (
     SELECT
         {hd_sql} AS hd,
-        a.SenateDistrict AS sd,
+        {sd_sql} AS sd,
         a.CongressionalDistrict AS cd,
         a.RequestDate,
         a.ReturnDate,
@@ -558,9 +580,13 @@ def build_year_outputs(year, results, updated):
         votes = sum(statewide[s][b] for s in ("returned", "ev") for b in BUCKETS)
         total = sum(statewide[s][b] for s in STATS for b in BUCKETS)
         wrong_election = (abbr, year) in WRONG_ELECTION_STATE_YEARS
-        if wrong_election or not total or (votes < MIN_HISTORY_VOTES and abbr not in REQUEST_ONLY_STATES):
+        unmappable = (abbr, year) in UNMAPPABLE_DISTRICTS_STATE_YEARS
+        if (wrong_election or unmappable or not total
+                or (votes < MIN_HISTORY_VOTES and abbr not in REQUEST_ONLY_STATES)):
             why = ("the feed holds a different election than that November's general"
                    if wrong_election
+                   else "its district columns map to no real districts"
+                   if unmappable
                    else f"no rows in the {year} feed" if not total
                    else f"only {votes:,} votes (returned+ev) against {total:,} rows "
                         f"- under the {MIN_HISTORY_VOTES:,} floor, so the year is unusable")

@@ -50,6 +50,8 @@ from queue import Queue
 
 from nh_floterials import floterial_counts, is_floterial
 
+from ma_house_districts import ma_house_case_sql
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = PROJECT_ROOT / "scripts" / "db_config.ini"
 OUT_DIR = PROJECT_ROOT / "data" / "abev"
@@ -236,6 +238,45 @@ STATE_MODELS = {
         "model_table": NATIONAL_MODEL_TABLE,
         "join_col": "dt_regid",
         "bucket_sql": NATIONAL_BUCKET_SQL,
+    },
+    # Massachusetts, added 2026-09-19 with 799,221 feed rows - the second
+    # largest state in the 2026 feed, and the only one whose district NUMBER
+    # cannot be used at all.
+    #
+    # BOTH chambers need a rewrite, for different reasons:
+    #  * HOUSE. The feed's LegislativeDistrict follows voterfile_2026 (97.9% of
+    #    rows agree), but both number the 160 seats on a different scheme from
+    #    the Census SLDLST ids the chamber files and shapefiles use - the voter
+    #    file alphabetically, the shapefile by county. They agree for 32 of
+    #    799,221 rows; 98.6% of MA records would be filed under the WRONG
+    #    district, silently, because both numbers name a real seat (feed 84 is
+    #    "THIRD SUFFOLK", which the app calls 125). The NAME is the only
+    #    reliable key - the same conclusion District Explorer's
+    #    district_ids.make_resolver() reached for this chamber. See
+    #    ma_house_districts.py for the verified crosswalk.
+    #  * SENATE. The number is right, the FORMAT is not: chamber files use
+    #    "D01".."D40". The feed agrees with voterfile_2026 on the number for
+    #    99.0% of rows, and DE reaches its ids by the same mechanical
+    #    integer -> D%02d step (its ma_senate district_names are blank, so its
+    #    resolver falls through to exactly this rule).
+    #
+    # No dedicated exchange file exists, so it takes the national fallback,
+    # which matches 98.4% of the MA feed. MA has NO 2022 history - it is one of
+    # the two states missing from General_Absentees_2022 (with MS).
+    "MA": {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+        "hd_sql": ma_house_case_sql(),
+        "sd_sql": (
+            "CASE WHEN TRY_CONVERT(int, a.SenateDistrict) BETWEEN 1 AND 40 "
+            "THEN 'D' + RIGHT('0' + CAST(TRY_CONVERT(int, a.SenateDistrict) "
+            "AS varchar(2)), 2) ELSE NULL END"
+        ),
+        "extra_join": (
+            "LEFT JOIN dbo.voterfile_2026 vf "
+            "ON vf.RNC_Regid = a.RNC_RegID AND vf.state = 'ma'"
+        ),
     },
     # Maryland: see MD_HOUSE_NOT_A_HOUSE_UNIT in historical_pull.py. The feed's
     # LegislativeDistrict is the *legislative* district (1-47) and is literally
@@ -751,7 +792,18 @@ STATE_MODELS = {
 # Every state with rows in dbo.General_Absentees_2026 (12 as of 2026-09-09),
 # plus KS, which is wired and waiting on its data.
 ACTIVE_STATES = ["VA", "WI", "AK", "RI", "PA", "NJ", "GA", "NC", "KS",
-                 "FL", "IL", "MN", "IA"]
+                 "FL", "IL", "MN", "IA",
+                 # Activated 2026-09-19: every remaining state the feed carries.
+                 # All six were already wired and indexed for the backfill, and
+                 # all six reproduce District Explorer's district counts exactly
+                 # (MD 71/47 via its hd_sql subdistrict rebuild, ID 35/35,
+                 # IN 100/50, ND 43/42, WY 59/31, NY 9/6 -- the last three short
+                 # of a full chamber only because the vendor has not delivered
+                 # those districts yet, not because anything failed to join).
+                 # MA needs BOTH of its chambers rewritten before its numbers
+                 # mean anything - see its STATE_MODELS entry - and lands at
+                 # 159/160 house (079 has no voter-file name) and 40/40 senate.
+                 "MD", "ID", "IN", "NY", "ND", "WY", "MA"]
 # Every state in STATE_MODELS is wired and indexed; ACTIVE_STATES is the separate
 # question of whether the AB feed actually carries it yet. A state needs BOTH a
 # model and rows in dbo.General_Absentees_2026 before it belongs here.
@@ -863,12 +915,15 @@ def state_query(model):
     # step with historical_pull.historical_query so a state that activates
     # behaves the same way in 2026 as it does in the backfill.
     hd_sql = model.get("hd_sql", "a.LegislativeDistrict")
+    # sd_sql is the senate twin of hd_sql. Only MA uses it: its senate ids are
+    # "D01".."D40" in every chamber file, not bare numbers.
+    sd_sql = model.get("sd_sql", "a.SenateDistrict")
     extra_join = model.get("extra_join", "")
     return f"""
 WITH scored AS (
     SELECT
         {hd_sql} AS hd,
-        a.SenateDistrict AS sd,
+        {sd_sql} AS sd,
         a.CongressionalDistrict AS cd,
         a.RequestDate,
         a.ReturnDate,
