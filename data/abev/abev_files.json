@@ -17,6 +17,8 @@
     "data/abev/ny_house.json",
     "data/abev/pa_house.json",
     "data/abev/ri_house.json",
+    "data/abev/va_house.json",
+    "data/abev/wi_house.json",
     "data/abev/wy_house.json"
   ],
   "senate": [
@@ -36,6 +38,8 @@
     "data/abev/ny_senate.json",
     "data/abev/pa_senate.json",
     "data/abev/ri_senate.json",
+    "data/abev/va_senate.json",
+    "data/abev/wi_senate.json",
     "data/abev/wy_senate.json"
   ],
   "cong": [
@@ -52,7 +56,9 @@
     "data/abev/nj_cong.json",
     "data/abev/ny_cong.json",
     "data/abev/pa_cong.json",
-    "data/abev/ri_cong.json"
+    "data/abev/ri_cong.json",
+    "data/abev/va_cong.json",
+    "data/abev/wi_cong.json"
   ],
   "national": "data/abev/national.json",
   "timeline": "data/abev/timeline.json"
