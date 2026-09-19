@@ -1,4 +1,4 @@
-"""Massachusetts house: voter-file district NAME -> the district_id the app uses.
+"""Massachusetts: voter-file district NAME -> the district_id the app uses.
 
 MASSACHUSETTS IS THE ONE STATE WHERE THE FEED'S DISTRICT NUMBER IS NOT THE APP'S.
 The absentee feed's LegislativeDistrict agrees with voterfile_2026's
@@ -215,3 +215,96 @@ def ma_house_case_sql(col="vf.StateLegLowerDistrict_Proper"):
     crosswalk = f"CASE UPPER(LTRIM(RTRIM({col}))) {whens} ELSE NULL END"
     return ("CASE WHEN TRY_CONVERT(int, a.LegislativeDistrict) = "
             "vf.StateLegLowerDistrict THEN " + crosswalk + " ELSE NULL END")
+
+
+# ---------------------------------------------------------------------------
+# Senate, for the HISTORICAL feeds only.
+#
+# In 2026 the senate needs no crosswalk: the feed's own number is right and only
+# the format is wrong, so sd_sql formats it as D%02d straight from the feed.
+# The 2024 file is the problem - its SenateDistrict is a THIRD encoding, running
+# 0..334 for a 40-seat chamber, and it is not even internally consistent: of its
+# 40 distinct codes only 32 map to one district at >=90%, and code '33' splits
+# 56/40 across districts 33 and 11. It cannot be rescued.
+#
+# The voter file can. Its name <-> number pairing for MA senate is an exact 1:1
+# (40 names, 40 numbers, zero names spanning two numbers), and D%02d off that
+# number is precisely how District Explorer reaches its own ids. Verified: all
+# 40 ids exist in DE's ma_senate.json.
+#
+# DO NOT use the *_PreviousElection columns for this. They look like the obvious
+# choice for a backfill and they are the wrong map: they hold MA's PRE-2022
+# districting, not 2024. The giveaway is that they differ from current for 47.1%
+# of the 2024 cohort in 100k-voter blocks, including pure renames of the same
+# territory ("BERKSHIRE HAMPSHIRE FRANKLIN AND HAMPDEN" -> "BERKSHIRE HAMPDEN
+# FRANKLIN AND HAMPSHIRE"). 2024 and 2026 ran on the SAME map, so CURRENT is the
+# right column.
+# ---------------------------------------------------------------------------
+MA_SENATE_BY_VOTERFILE_NAME = {
+    "BERKSHIRE HAMPDEN FRANKLIN AND HAMPSHIRE": "D01",
+    "HAMPDEN AND HAMPSHIRE": "D02",
+    "HAMPDEN": "D03",
+    "HAMPDEN HAMPSHIRE AND WORCESTER": "D04",
+    "HAMPSHIRE FRANKLIN AND WORCESTER": "D05",
+    "WORCESTER AND HAMPSHIRE": "D06",
+    "WORCESTER AND HAMPDEN": "D07",
+    "SECOND WORCESTER": "D08",
+    "FIRST WORCESTER": "D09",
+    "WORCESTER AND MIDDLESEX": "D10",
+    "FIRST MIDDLESEX": "D11",
+    "MIDDLESEX AND WORCESTER": "D12",
+    "MIDDLESEX AND NORFOLK": "D13",
+    "NORFOLK WORCESTER AND MIDDLESEX": "D14",
+    "THIRD MIDDLESEX": "D15",
+    "FOURTH MIDDLESEX": "D16",
+    "NORFOLK AND MIDDLESEX": "D17",
+    "NORFOLK AND SUFFOLK": "D18",
+    "FIRST ESSEX": "D19",
+    "SECOND ESSEX AND MIDDLESEX": "D20",
+    "FIRST ESSEX AND MIDDLESEX": "D21",
+    "SECOND ESSEX": "D22",
+    "FIFTH MIDDLESEX": "D23",
+    "THIRD ESSEX": "D24",
+    "THIRD SUFFOLK": "D25",
+    "MIDDLESEX AND SUFFOLK": "D26",
+    "SECOND MIDDLESEX": "D27",
+    "SUFFOLK AND MIDDLESEX": "D28",
+    "SECOND SUFFOLK": "D29",
+    "FIRST SUFFOLK": "D30",
+    "FIRST PLYMOUTH AND NORFOLK": "D31",
+    "NORFOLK AND PLYMOUTH": "D32",
+    "NORFOLK PLYMOUTH AND BRISTOL": "D33",
+    "SECOND PLYMOUTH AND NORFOLK": "D34",
+    "BRISTOL AND NORFOLK": "D35",
+    "THIRD BRISTOL AND PLYMOUTH": "D36",
+    "FIRST BRISTOL AND PLYMOUTH": "D37",
+    "SECOND BRISTOL AND PLYMOUTH": "D38",
+    "PLYMOUTH AND BARNSTABLE": "D39",
+    "CAPE AND ISLANDS": "D40",
+}
+
+
+def ma_senate_history_case_sql(col="vf.StateLegUpperDistrict_Proper"):
+    """CASE mapping the voter file's senate-district name to the app's id.
+
+    For the historical pullers only - see the note above. Unlisted or blank
+    yields NULL, i.e. no senate district, never a guess."""
+    whens = " ".join(
+        f"WHEN '{name}' THEN '{did}'"
+        for name, did in MA_SENATE_BY_VOTERFILE_NAME.items())
+    return f"CASE UPPER(LTRIM(RTRIM({col}))) {whens} ELSE NULL END"
+
+
+def ma_house_history_case_sql(col="vf.StateLegLowerDistrict_Proper"):
+    """House crosswalk WITHOUT the feed-agreement guard, for historical pulls.
+
+    ma_house_case_sql() cross-checks the feed's house number against the voter
+    file before trusting the name. That guard is right for 2026, where the two
+    share the alphabetical numbering - but the 2024 feed's house number is its
+    own third scheme, agreeing on 0.3% of rows, so the guard would reject almost
+    everything. History therefore takes the name unguarded and accepts the
+    residential-mobility error quantified in daily_update's MA entry."""
+    whens = " ".join(
+        f"WHEN '{name}' THEN '{did}'"
+        for name, did in MA_HOUSE_BY_VOTERFILE_NAME.items())
+    return f"CASE UPPER(LTRIM(RTRIM({col}))) {whens} ELSE NULL END"

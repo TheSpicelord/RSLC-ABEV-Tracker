@@ -109,6 +109,7 @@
         "data/abev/history/2024/il_house.json",
         "data/abev/history/2024/in_house.json",
         "data/abev/history/2024/ks_house.json",
+        "data/abev/history/2024/ma_house.json",
         "data/abev/history/2024/md_house.json",
         "data/abev/history/2024/mi_house.json",
         "data/abev/history/2024/mn_house.json",
@@ -151,6 +152,7 @@
         "data/abev/history/2024/il_senate.json",
         "data/abev/history/2024/in_senate.json",
         "data/abev/history/2024/ks_senate.json",
+        "data/abev/history/2024/ma_senate.json",
         "data/abev/history/2024/md_senate.json",
         "data/abev/history/2024/mi_senate.json",
         "data/abev/history/2024/mn_senate.json",
@@ -182,6 +184,7 @@
       ],
       "cong": [
         "data/abev/history/2024/fl_cong.json",
+        "data/abev/history/2024/ma_cong.json",
         "data/abev/history/2024/mn_cong.json",
         "data/abev/history/2024/ms_cong.json",
         "data/abev/history/2024/ok_cong.json",

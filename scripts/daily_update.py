@@ -50,7 +50,8 @@ from queue import Queue
 
 from nh_floterials import floterial_counts, is_floterial
 
-from ma_house_districts import ma_house_case_sql
+from ma_districts import (ma_house_case_sql, ma_house_history_case_sql,
+                          ma_senate_history_case_sql)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = PROJECT_ROOT / "scripts" / "db_config.ini"
@@ -273,6 +274,22 @@ STATE_MODELS = {
             "THEN 'D' + RIGHT('0' + CAST(TRY_CONVERT(int, a.SenateDistrict) "
             "AS varchar(2)), 2) ELSE NULL END"
         ),
+        # History resolves BOTH chambers off the voter-file NAME instead. The
+        # 2024 file's own district codes are a third scheme that matches nothing
+        # (senate 0..334 for 40 seats; only 32 of its 40 codes map to a single
+        # district at >=90%, and code '33' splits 56/40 across two), so the 2026
+        # expressions above would publish coincidences. See ma_districts.py.
+        #
+        # The cost is residential mobility: the name comes from the 2026 voter
+        # file, so a voter who moved since 2024 is counted in their new district.
+        # Measured across eight states whose 2024 feed and the 2026 voter file
+        # share a numbering (MD, IN, ID, IL, PA, NJ, MN, WI), that rate is
+        # 2.0-6.2%, median ~4.4% - ordinary mobility, and party-neutral. Worth it
+        # for a 93.5% attribution rate against the alternative of no MA history
+        # at all, but it does mean MA is the ONE state whose history is keyed on
+        # current residence rather than residence at the time of the election.
+        "hd_sql_history": ma_house_history_case_sql(),
+        "sd_sql_history": ma_senate_history_case_sql(),
         "extra_join": (
             "LEFT JOIN dbo.voterfile_2026 vf "
             "ON vf.RNC_Regid = a.RNC_RegID AND vf.state = 'ma'"
