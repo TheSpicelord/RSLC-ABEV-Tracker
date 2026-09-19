@@ -483,29 +483,38 @@ STATE_MODELS = {
     #  * AR 2024 loses 11.3% of its rows to a NULL district (99,519 of 881,367),
     #    against 2.4% in 2022. Those voters count statewide but land in no
     #    district.
-    # FL and MN on the national fallback, added 2026-09-09 so that every state
-    # with 2026 feed data is published. Neither has an exchange file.
+    # FL on the national fallback, added 2026-09-09 so that every state with 2026
+    # feed data is published. It has no exchange file of its own.
     #
-    #  * MINNESOTA'S HOUSE IDS ARE LETTERED (01A..67B, two seats per senate
-    #    district) and its feed writes them UNPADDED - "1A" where every chamber
-    #    file says "01A". normalize_district_id() pads them; without that, 18 of
-    #    its 134 house districts would join to nothing.
-    #  * MN was previously held back pending a state model. It is on the national
-    #    fallback now because it has data and should be visible; swapping in a
-    #    state model later is a STATE_MODELS edit, and the watermark includes the
-    #    model table, so the next run re-pulls it automatically.
-    #  * FL and MN are both early in their cycle - 2.07M and 179k requests against
-    #    ONE return between them - which is correct, not a gap: neither has begun
-    #    returning ballots.
+    #  * FL and MN were both early in their cycle as of 2026-09-09 - 2.07M and
+    #    179k requests against ONE return between them - which is correct, not a
+    #    gap: neither had begun returning ballots.
     "FL": {
         "model_table": NATIONAL_MODEL_TABLE,
         "join_col": "dt_regid",
         "bucket_sql": NATIONAL_BUCKET_SQL,
     },
+    # Minnesota's first dedicated model (2026-09-19), replacing the national
+    # fallback it rode from 2026-09-09. 8 universes: GOP base 1-3 (Demuth Base,
+    # Republican Voters, 2024 Trump Voters), Dem base 7-8 (Vulnerable Dems,
+    # Klobuchar Base). 4-6 are persuasion (Prime Persuasion, Stubborn Middle,
+    # Reach Persuasion) and fall to toss with the unmatched.
+    # Shared with District Explorer's MODELS["MN"], which publishes it as "ROU".
+    #
+    #  * MINNESOTA'S HOUSE IDS ARE LETTERED (01A..67B, two seats per senate
+    #    district) and its feed writes them UNPADDED - "1A" where every chamber
+    #    file says "01A". normalize_district_id() pads them; without that, 18 of
+    #    its 134 house districts would join to nothing.
+    #  * The watermark includes the model table, so this swap re-pulls MN on the
+    #    next run without any extra flag.
     "MN": {
-        "model_table": NATIONAL_MODEL_TABLE,
+        "model_table": "dbo.MN_Exchange_20260831",
         "join_col": "dt_regid",
-        "bucket_sql": NATIONAL_BUCKET_SQL,
+        "bucket_sql": (
+            "CASE WHEN m.universenumber IN (1, 2, 3) THEN 'rep' "
+            "WHEN m.universenumber IN (7, 8) THEN 'dem' "
+            "ELSE 'toss' END"  # 4-6 (persuasion) and unmatched -> toss
+        ),
     },
     # Utah on the national fallback - no exchange file. Added 2026-09-09; not in
     # ACTIVE_STATES and no 2026 feed rows. Utah votes almost entirely by mail, so
@@ -610,13 +619,25 @@ STATE_MODELS = {
     # NJ/[MI] to 9 and 8 (NJ Dem base 7-9), so the usual 1-2 / 6-7 split is wrong for
     # them. Anything outside the listed bases (persuasion/swing) and every unmatched
     # voter falls to 'toss', as always.
+    # Nevada moved to the R2 refresh on 2026-09-19, replacing
+    # NV_GOV_IE_R1_Exchange_20260105 (7 universes, 1-2 / 6-7). The R2 ladder has
+    # 8: GOP base 1-2 (Lombardo Base, Lombardo Soft Trump), Dem base 6-8
+    # (National Dems, Vulnerable Ford, Ford Base).
+    #
+    # ASYMMETRIC BY SPEC, like Kansas below: universe 3 "Trump/Vance Voters"
+    # (90k) belongs to NEITHER base and falls to toss. Folding it into 'rep' to
+    # balance the ladder overstates the GOP margin by 2-4 points per district -
+    # that was a real bug caught on 2026-09-19 before it shipped.
+    #
+    # Note the capitalised UniverseNumber in this table (the R1 table was
+    # lowercase). Shared with District Explorer's MODELS["NV"].
     "NV": {
-        "model_table": "dbo.NV_GOV_IE_R1_Exchange_20260105",
+        "model_table": "dbo.NV_R2_Exchange_20260708",
         "join_col": "dt_regid",
         "bucket_sql": (
-            "CASE WHEN m.universenumber IN (1, 2) THEN 'rep' "
-            "WHEN m.universenumber IN (6, 7) THEN 'dem' "
-            "ELSE 'toss' END"
+            "CASE WHEN m.UniverseNumber IN (1, 2) THEN 'rep' "
+            "WHEN m.UniverseNumber IN (6, 7, 8) THEN 'dem' "
+            "ELSE 'toss' END"  # 3 (Trump/Vance), 4-5 (persuasion) and unmatched -> toss
         ),
     },
     # Arizona moved to the Aug 2026 refresh on 2026-09-09, replacing
@@ -1351,7 +1372,10 @@ def main():
 
     if args.dry_run:
         for abbr in states:
-            house, senate, statewide, *_rest = results[abbr]
+            # NB the third element is `cong` (added with congressional-district
+            # capture in 67d796f); unpacking it as `statewide` made --dry-run
+            # crash summing a dict of dicts.
+            house, senate, cong, statewide, *_rest = results[abbr]
             print(f"[{abbr}] house districts: {len(house)}, senate districts: {len(senate)}, "
                   f"statewide requested: {sum(statewide['requested'].values()):,}")
         print("Dry run complete — no files written.")

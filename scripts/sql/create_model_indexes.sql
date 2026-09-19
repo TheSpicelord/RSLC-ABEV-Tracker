@@ -109,12 +109,22 @@ BEGIN
     CREATE CLUSTERED INDEX CIX_OH_dtregid ON dbo.OH_Audiences_20260812_idx (dt_regid);
 END;
 
--- Nevada governor IE model
+-- Nevada R2 exchange model (Sept 2026 refresh; 8 universes, GOP 1-2 / Dem 6-8).
+-- Capitalised UniverseNumber here, unlike the R1 table it replaced.
 IF NOT EXISTS (SELECT 1 FROM sys.indexes
                WHERE name = 'IX_dtregid_NV'
-                 AND object_id = OBJECT_ID('dbo.NV_GOV_IE_R1_Exchange_20260105'))
+                 AND object_id = OBJECT_ID('dbo.NV_R2_Exchange_20260708'))
     CREATE NONCLUSTERED INDEX IX_dtregid_NV
-    ON dbo.NV_GOV_IE_R1_Exchange_20260105 (dt_regid)
+    ON dbo.NV_R2_Exchange_20260708 (dt_regid)
+    INCLUDE (UniverseNumber);
+
+-- Minnesota exchange model (first dedicated MN model; 8 universes, GOP 1-3 /
+-- Dem 7-8). MN rode the national fallback before 2026-09-19.
+IF NOT EXISTS (SELECT 1 FROM sys.indexes
+               WHERE name = 'IX_dtregid_MN'
+                 AND object_id = OBJECT_ID('dbo.MN_Exchange_20260831'))
+    CREATE NONCLUSTERED INDEX IX_dtregid_MN
+    ON dbo.MN_Exchange_20260831 (dt_regid)
     INCLUDE (universenumber);
 
 -- Arizona exchange model (Aug 2026 refresh; buckets on Framework)
@@ -227,3 +237,9 @@ IF EXISTS (SELECT 1 FROM sys.indexes
            WHERE name = 'IX_dtregid_AZ'
              AND object_id = OBJECT_ID('dbo.RGA_AZ_R2_Exchange_20260121'))
     DROP INDEX IX_dtregid_AZ ON dbo.RGA_AZ_R2_Exchange_20260121;
+
+-- Dropped 2026-09-19: superseded by NV_R2_Exchange_20260708
+IF EXISTS (SELECT 1 FROM sys.indexes
+           WHERE name = 'IX_dtregid_NV'
+             AND object_id = OBJECT_ID('dbo.NV_GOV_IE_R1_Exchange_20260105'))
+    DROP INDEX IX_dtregid_NV ON dbo.NV_GOV_IE_R1_Exchange_20260105;

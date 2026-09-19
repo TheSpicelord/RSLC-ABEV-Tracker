@@ -107,6 +107,21 @@ CHAMBER_DISTRICT_CAPS = {
     # 0 rejects every numeric house id on purpose - it is unicameral, so its 49
     # seats are the senate and there is no house chamber to roll up.
     "ND": (47, 47), "SD": (35, 35), "NE": (0, 49),
+    # MINNESOTA'S HOUSE CAP IS 0 FOR THE SAME REASON AS NEBRASKA'S: it rejects
+    # every *numeric* house id, and MN has none - all 134 seats are lettered
+    # (01A..67B), so a bare number is never a valid MN house district.
+    #
+    # The 2024 feed needs this. 60,106 of its 1,108,930 MN rows (5.4%) carry the
+    # SENATE district number in LegislativeDistrict - leg == sen on every one of
+    # them, the house letter simply dropped - which normalize_district_id() turns
+    # into 25 phantom house districts ("001".."058") that join to no shapefile and
+    # render nowhere. That is the California "0001" bug in a different costume.
+    # Those voters still count toward their (correct) senate district and the
+    # statewide totals; only the unknowable house seat is dropped, which is right:
+    # the letter is what says whether the voter is in the A or B half, and it is
+    # not recoverable. 2022 is clean (0 numeric, 134 lettered), so this is a 2024
+    # export defect rather than a standing feed convention.
+    "MN": (0, 67),
     "IN": (100, 50), "KY": (100, 38), "TN": (99, 33),
     "MT": (100, 50), "ID": (35, 35), "WY": (62, 31),
     "CA": (80, 40), "WA": (49, 49), "OH": (99, 33),
@@ -659,7 +674,9 @@ def main():
             if not args.dry_run:
                 index_years[str(year)] = build_year_outputs(year, results, updated)
             else:
-                for abbr, (house, senate, statewide, *_rest) in results.items():
+                # Third element is `cong`; skipping it here made --dry-run
+                # crash summing a dict of dicts (same bug as daily_update).
+                for abbr, (house, senate, cong, statewide, *_rest) in results.items():
                     print(f"  [{abbr}] house districts: {len(house)}, senate districts: {len(senate)}, "
                           f"statewide requested: {sum(statewide['requested'].values()):,}")
     finally:
