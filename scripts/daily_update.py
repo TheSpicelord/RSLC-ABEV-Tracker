@@ -565,6 +565,26 @@ STATE_MODELS = {
     #    its 134 house districts would join to nothing.
     #  * The watermark includes the model table, so this swap re-pulls MN on the
     #    next run without any extra flag.
+    # Colorado, added 2026-09-21 alongside District Explorer's MODELS["CO"], which
+    # publishes it as RSLC. WIRED BUT NOT ACTIVE: General_Absentees_2026 carries
+    # zero CO rows today, so CO stays out of ACTIVE_STATES until the feed has it -
+    # the same holding pattern Kansas sat in.
+    #
+    # The ladder is four TEXT tags rather than a numbered universe column, so the
+    # bucket CASE compares strings. There is no persuasion rung: every tagged voter
+    # is in one of the two bases, so only unmatched voters and the 8,730 rows with a
+    # blank DT_REGID (which cannot join at all) fall to 'toss'.
+    #
+    # Note the UPPERCASE column names and DT_REGID join column in this table.
+    "CO": {
+        "model_table": "dbo.RSLC_CY_CO_Data",
+        "join_col": "DT_REGID",
+        "bucket_sql": (
+            "CASE WHEN m.MODEL_GENERIC_BALLOT_TAG IN ('GOP - Strong', 'GOP - Soft') THEN 'rep' "
+            "WHEN m.MODEL_GENERIC_BALLOT_TAG IN ('Dem - Strong', 'Dem - Soft') THEN 'dem' "
+            "ELSE 'toss' END"
+        ),
+    },
     "MN": {
         "model_table": "dbo.MN_Exchange_20260831",
         "join_col": "dt_regid",
