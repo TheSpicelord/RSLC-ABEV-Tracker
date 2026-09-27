@@ -566,9 +566,8 @@ STATE_MODELS = {
     #  * The watermark includes the model table, so this swap re-pulls MN on the
     #    next run without any extra flag.
     # Colorado, added 2026-09-21 alongside District Explorer's MODELS["CO"], which
-    # publishes it as RSLC. WIRED BUT NOT ACTIVE: General_Absentees_2026 carries
-    # zero CO rows today, so CO stays out of ACTIVE_STATES until the feed has it -
-    # the same holding pattern Kansas sat in.
+    # publishes it as RSLC. The feed had no CO rows when it was wired; they landed
+    # by 2026-09-27 (3.98M, the second-largest state) and it published itself.
     #
     # The ladder is four TEXT tags rather than a numbered universe column, so the
     # bucket CASE compares strings. There is no persuasion rung: every tagged voter
@@ -826,47 +825,42 @@ STATE_MODELS = {
     },
 }
 
-# Every state with rows in dbo.General_Absentees_2026 (12 as of 2026-09-09),
-# plus KS, which is wired and waiting on its data.
-ACTIVE_STATES = ["VA", "WI", "AK", "RI", "PA", "NJ", "GA", "NC", "KS",
-                 "FL", "IL", "MN", "IA",
-                 # Activated 2026-09-19: every remaining state the feed carries.
-                 # All six were already wired and indexed for the backfill, and
-                 # all six reproduce District Explorer's district counts exactly
-                 # (MD 71/47 via its hd_sql subdistrict rebuild, ID 35/35,
-                 # IN 100/50, ND 43/42, WY 59/31, NY 9/6 -- the last three short
-                 # of a full chamber only because the vendor has not delivered
-                 # those districts yet, not because anything failed to join).
-                 # MA needs BOTH of its chambers rewritten before its numbers
-                 # mean anything - see its STATE_MODELS entry - and lands at
-                 # 159/160 house (079 has no voter-file name) and 40/40 senate.
-                 "MD", "ID", "IN", "NY", "ND", "WY", "MA"]
-# Every state in STATE_MODELS is wired and indexed; ACTIVE_STATES is the separate
-# question of whether the AB feed actually carries it yet. A state needs BOTH a
-# model and rows in dbo.General_Absentees_2026 before it belongs here.
+# There is NO list of published states. Every run publishes exactly the states
+# whose '<ST> General Election' rows are in dbo.General_Absentees_2026 right now
+# (feed_states), so a state goes live on the first refresh after the vendor
+# loads it, with no code change. Replaced the hand-kept ACTIVE_STATES list on
+# 2026-09-27, after MI, OH, CO, MT, NE, CA, OK, SD, NH, ME and VT had all
+# arrived in the feed and sat unpublished waiting for someone to add them.
 #
-# Feed contents observed 2026-09-05 (rows in General_Absentees_2026):
-#   FL 1,892,416 | VA 1,503,657 | PA 919,291 | NJ 871,439 | IL 444,380
-#   WI   428,058 | MN   179,329 | GA  61,729 | AK  23,232 | RI  14,105
-#
-#   * NC is activated but the vendor has NOT loaded it yet (0 rows on 2026-09-05,
-#     though NC ballots went out 9/4). It is here on purpose: build_outputs()
-#     omits a state with no activity, so NC stays invisible on the site and then
-#     publishes itself on the first daily run after the feed lands. Its 2022/2024
-#     history is already backfilled and does not depend on the 2026 feed.
-#   * FL is new to the feed since 2026-09-01 and is the largest state in it, but
-#     it has no model - it needs a STATE_MODELS entry (national fallback is fine)
-#     before it can be activated.
-#
-#   * PA, NJ and GA were activated 2026-09-01, once each had both a model and feed
-#     data. (PA had been held out because the vendor dropped it after briefly
-#     loading ~526k rows; it came back.) All three are real Nov 3 generals, so they
-#     take the default election day.
-#   * IL and MN have feed data but no dedicated model. They would work today on
-#     the national fallback, the way RI does — add a STATE_MODELS entry pointing at
-#     NATIONAL_MODEL_TABLE / NATIONAL_BUCKET_SQL first.
-#   * NV, AZ, MI, TX, IA and OR have models but zero feed rows so far. Adding one
-#     to ACTIVE_STATES before its data lands produces an empty state, not an error.
+# A state with no STATE_MODELS entry is bucketed on the national fallback
+# (model_for). ME and VT were the first to publish that way. The exact
+# ElectionType match is what keeps VA's March referendum and WI's April
+# Supreme Court rows out: a state with only off-cycle rows is not discovered.
+
+
+def model_for(abbr):
+    """The state's own model, or the national fallback for a state with none."""
+    return STATE_MODELS.get(abbr) or {
+        "model_table": NATIONAL_MODEL_TABLE,
+        "join_col": "dt_regid",
+        "bucket_sql": NATIONAL_BUCKET_SQL,
+    }
+
+
+def feed_states(conn):
+    """Every state with general-election rows in the 2026 feed, alphabetical.
+    Abbreviations the site cannot place (no FIPS) are reported and skipped."""
+    cur = conn.cursor()
+    cur.execute(
+        f"SELECT DISTINCT a.State FROM {ABEV_TABLE} a "
+        f"WHERE a.ElectionType = a.State + ' General Election'"
+    )
+    found = sorted({str(r[0] or "").strip().upper() for r in cur.fetchall()} - {""})
+    unknown = [a for a in found if a not in ABBR_TO_FIPS]
+    if unknown:
+        print(f"** feed carries states with no FIPS mapping, skipped: {', '.join(unknown)}")
+    return [a for a in found if a in ABBR_TO_FIPS]
+
 
 ABBR_TO_FIPS = {
     "AL": "01", "AK": "02", "AZ": "04", "AR": "05", "CA": "06", "CO": "08",
@@ -1038,7 +1032,7 @@ def empty_stat_buckets():
 
 
 def pull_state(conn, abbr, today):
-    model = STATE_MODELS[abbr]
+    model = model_for(abbr)
     print(f"[{abbr}] running aggregate query (model: {model['model_table']}) ...")
     cursor = conn.cursor()
     cursor.execute(state_query(model), abbr, GENERAL_ELECTION_TYPE.format(abbr=abbr))
@@ -1136,7 +1130,7 @@ def load_existing_states(path, key):
         return [] if key == "states" else {}
 
 
-def build_outputs(results, updated, refreshed_at):
+def build_outputs(results, updated, refreshed_at, prune=False):
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_index = {"house": [], "senate": [], "cong": []}
     # Seed national/timeline from disk so a PARTIAL run (--states) replaces only
@@ -1148,6 +1142,17 @@ def build_outputs(results, updated, refreshed_at):
     prior_nat = load_existing_states(OUT_DIR / "national.json", "states")
     states_by_abbr = {s["state_abbr"]: s for s in prior_nat if s.get("state_abbr")}
     timeline_out = dict(load_existing_states(OUT_DIR / "timeline.json", "states"))
+
+    # A full run publishes exactly the feed, so a state that has dropped out of it
+    # (the vendor pulled PA's rows for a while once) comes off the site rather than
+    # lingering on its last numbers. Its files stay in git history.
+    if prune:
+        for abbr in sorted(set(states_by_abbr) - set(results)):
+            print(f"[{abbr}] no longer in the feed - removed from the site.")
+            states_by_abbr.pop(abbr, None)
+            timeline_out.pop(ABBR_TO_FIPS.get(abbr, ""), None)
+            for chamber in ("house", "senate", "cong"):
+                (OUT_DIR / f"{abbr.lower()}_{chamber}.json").unlink(missing_ok=True)
 
     for abbr in sorted(results):
         fips = ABBR_TO_FIPS[abbr]
@@ -1267,7 +1272,7 @@ def state_watermark(conn, abbr):
     it a model swap leaves a state whose feed has not moved silently sitting on
     JSON built from the old model - which is exactly what would have happened to
     WI when it moved to RSLC_WI_Exchange_20260819."""
-    model = STATE_MODELS[abbr]
+    model = model_for(abbr)
     table = model.get("abev_table", ABEV_TABLE)
     extra_where = model.get("extra_where", "")
     cur = conn.cursor()
@@ -1393,14 +1398,17 @@ def main():
                         help="re-pull every state, ignoring the skip-unchanged cache")
     parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS,
                         help="max states queried in parallel (default: %(default)s)")
-    parser.add_argument("--states", default=",".join(ACTIVE_STATES),
-                        help="comma-separated state abbrs to pull (default: %(default)s)")
+    parser.add_argument("--states", default="",
+                        help="comma-separated state abbrs to pull (default: every state in the feed)")
     args = parser.parse_args()
 
     states = [s.strip().upper() for s in args.states.split(",") if s.strip()]
     for abbr in states:
-        if abbr not in STATE_MODELS:
-            sys.exit(f"No model configured for {abbr} — add it to STATE_MODELS in {__file__}")
+        if abbr not in ABBR_TO_FIPS:
+            sys.exit(f"Unknown state {abbr}")
+    # Only a full run knows the whole feed, so only a full run may un-publish a
+    # state that has left it; a --states subset leaves everyone else alone.
+    full_run = not states
 
     today = date.today()
     updated = today.isoformat()
@@ -1420,6 +1428,12 @@ def main():
     probe = connect(cfg)
     probe.timeout = 0
     try:
+        if full_run:
+            states = feed_states(probe)
+            if not states:
+                # Never publish an empty site off a feed query that came back blank.
+                sys.exit("The feed returned no general-election states - nothing written.")
+            print(f"{len(states)} states in the feed: {', '.join(states)}")
         for abbr in states:
             wm = state_watermark(probe, abbr)
             fresh_wm[abbr] = wm
@@ -1478,7 +1492,7 @@ def main():
         print("Dry run complete — no files written.")
         return
 
-    build_outputs(results, updated, refreshed_at)
+    build_outputs(results, updated, refreshed_at, prune=full_run)
     # On-disk JSON now matches these fingerprints, so record them for next run.
     # Merge so a partial --states run doesn't wipe other states' cached prints.
     merged_wm = load_watermarks()

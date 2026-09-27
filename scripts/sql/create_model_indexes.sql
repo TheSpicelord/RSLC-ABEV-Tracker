@@ -201,6 +201,16 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
     INCLUDE (framework);
 
 
+-- Colorado RSLC model (added 2026-09-27, when CO landed in the feed unindexed:
+-- 4.0M model rows against 3.98M feed rows). Note the UPPERCASE DT_REGID.
+IF NOT EXISTS (SELECT 1 FROM sys.indexes
+               WHERE name = 'IX_dtregid_CO'
+                 AND object_id = OBJECT_ID('dbo.RSLC_CY_CO_Data'))
+    CREATE NONCLUSTERED INDEX IX_dtregid_CO
+    ON dbo.RSLC_CY_CO_Data (DT_REGID)
+    INCLUDE (MODEL_GENERIC_BALLOT_TAG);
+
+
 -- ---------------------------------------------------------------------------
 -- Retired indexes: tables no longer referenced by STATE_MODELS.
 --
