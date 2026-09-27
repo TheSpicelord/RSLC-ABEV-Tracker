@@ -44,7 +44,7 @@ import sys
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from queue import Queue
 
@@ -1136,7 +1136,7 @@ def load_existing_states(path, key):
         return [] if key == "states" else {}
 
 
-def build_outputs(results, updated):
+def build_outputs(results, updated, refreshed_at):
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_index = {"house": [], "senate": [], "cong": []}
     # Seed national/timeline from disk so a PARTIAL run (--states) replaces only
@@ -1211,7 +1211,11 @@ def build_outputs(results, updated):
         )
 
     (OUT_DIR / "national.json").write_text(
-        json.dumps({"updated": updated, "states": states_out}, separators=(",", ":")),
+        # refreshed_at is the run's wall-clock time (local, with UTC offset) for the
+        # site's "last refreshed" line; `updated` stays a bare date for everything
+        # else that reads it.
+        json.dumps({"updated": updated, "refreshed_at": refreshed_at, "states": states_out},
+                   separators=(",", ":")),
         encoding="utf-8",
     )
     (OUT_DIR / "timeline.json").write_text(
@@ -1400,6 +1404,7 @@ def main():
 
     today = date.today()
     updated = today.isoformat()
+    refreshed_at = datetime.now().astimezone().isoformat(timespec="minutes")
     cfg = load_config()
 
     # A dry run is meant to exercise the queries, so it never skips and never
@@ -1473,7 +1478,7 @@ def main():
         print("Dry run complete — no files written.")
         return
 
-    build_outputs(results, updated)
+    build_outputs(results, updated, refreshed_at)
     # On-disk JSON now matches these fingerprints, so record them for next run.
     # Merge so a partial --states run doesn't wipe other states' cached prints.
     merged_wm = load_watermarks()

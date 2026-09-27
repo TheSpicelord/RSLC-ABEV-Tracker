@@ -1,4 +1,4 @@
-import { requireAuth } from "./modules/auth.js?v=20260910a";
+import { requireAuth } from "./modules/auth.js?v=20260925a";
 import {
   ABEV_HISTORY_INDEX_URL,
   ABEV_INDEX_URL,
@@ -31,7 +31,7 @@ import {
   VIEW_BUTTON_LABELS,
   VIEW_CARD_LABELS,
   VIEW_MAP_STAT,
-} from "./modules/config.js?v=20260910a";
+} from "./modules/config.js?v=20260925a";
 import {
   details,
   detailsTitle,
@@ -45,15 +45,15 @@ import {
   targetDistrictsToggle,
   updatedBadge,
   upIn2026Toggle,
-} from "./modules/dom.js?v=20260910a";
-import { state } from "./modules/state.js?v=20260910a";
-import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20260910a";
+} from "./modules/dom.js?v=20260925a";
+import { state } from "./modules/state.js?v=20260925a";
+import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20260925a";
 
 if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260910a";
+const BUILD_VERSION = "20260925a";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -182,6 +182,7 @@ async function loadAbevData() {
   }
 
   state.updatedDate = String(national?.updated || index?.updated || "");
+  state.refreshedAt = String(national?.refreshed_at || "");
   state.isSampleData = Boolean(national?.sample || index?.sample);
 }
 
@@ -216,12 +217,36 @@ async function fetchJson(url) {
 
 function renderDataBadges() {
   if (updatedBadge) {
-    updatedBadge.hidden = !state.updatedDate;
-    updatedBadge.textContent = state.updatedDate ? `Data as of ${state.updatedDate}` : "";
+    // A refresh date, not the data's as-of date: the feed runs a day or more
+    // behind, and each state's own as-of sits above its sidebar table.
+    const refreshed = refreshedLabel();
+    updatedBadge.hidden = !refreshed;
+    updatedBadge.textContent = refreshed ? `Last refreshed ${refreshed}` : "";
   }
   if (sampleBadge) {
     sampleBadge.hidden = !state.isSampleData;
   }
+}
+
+// When daily_update.py last ran, in the viewer's local time: "9/25 8:10 AM EDT".
+// Files written before it recorded a time carry only a date, shown bare.
+function refreshedLabel() {
+  const at = state.refreshedAt ? new Date(state.refreshedAt) : null;
+  if (at && !Number.isNaN(at.getTime())) {
+    const time = at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+    return `${at.getMonth() + 1}/${at.getDate()} ${time}`;
+  }
+  return state.updatedDate ? chronoDateLabel(state.updatedDate) : "";
+}
+
+// One line over the sidebar tables. The as-of date is the one On This Day
+// aligns 2022/2024 to (currentDataIsoForSelectedState), so the two agree.
+function dataAsOfNoteHtml() {
+  if (!state.timelineByFips.get(normalizeStateFips(state.selectedState?.fips))) return "";
+  const asOf = chronoDateLabel(currentDataIsoForSelectedState());
+  const refreshed = refreshedLabel();
+  const text = `2026 ABEV data accurate as of ${asOf}${refreshed ? `, last refreshed ${refreshed}` : ""}`;
+  return `<div class="data-asof-note">${escapeHtml(text)}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -552,18 +577,46 @@ function historyTimelineForScope(year, joinKey) {
   return state.historyTimelineByYear.get(year)?.get(fips) || null;
 }
 
-// How far the current cycle is from its election day. Past years are aligned to
-// the same distance from *their* election day, so "99 days out" compares like
-// with like. Clamped at 0 once election day has passed.
-function daysOutFromElectionDay() {
-  const days = daysBetweenIso(localTodayIso(), electionDayForSelectedState());
+// The latest day the selected state's 2026 feed has activity for `stat`, capped
+// at today / election day. On This Day aligns past years to this rather than to
+// today, because the feed runs a day or more behind: keyed to today, the table
+// counted 2024 days that 2026 has no data for yet (WI SD-31 on 9/25 showed 1,994
+// 2024 returns, against 588 on the district's own last row, 9/22). Per stat,
+// since returns can trail requests by a day. A stat with no dated activity
+// falls back to the latest day of any stat, then to today.
+function currentDataIsoForSelectedState(stat = mapStat()) {
+  const fips = normalizeStateFips(state.selectedState?.fips);
+  const timeline = state.timelineByFips.get(fips);
+  const todayIso = localTodayIso();
+  const electionDay = electionDayForSelectedState();
+  const cap = electionDay < todayIso ? electionDay : todayIso;
+  const latestFor = (parts) => {
+    let latest = null;
+    for (const part of parts) {
+      for (const row of timeline?.[part] || []) {
+        const key = String(row.date || "");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || key > cap) continue;
+        if (!(Number(row.rep || 0) + Number(row.dem || 0) + Number(row.toss || 0))) continue;
+        if (!latest || key > latest) latest = key;
+      }
+    }
+    return latest;
+  };
+  return latestFor(stat === "voted" ? ["returned", "ev"] : [stat]) || latestFor(CHRONO_STATS) || cap;
+}
+
+// How far the current cycle's data is from its election day. Past years are
+// aligned to the same distance from *their* election day, so "99 days out"
+// compares like with like. Clamped at 0 once election day has passed.
+function daysOutFromElectionDay(stat = mapStat()) {
+  const days = daysBetweenIso(currentDataIsoForSelectedState(stat), electionDayForSelectedState());
   return days > 0 ? days : 0;
 }
 
-function historyAsOfIso(year) {
+function historyAsOfIso(year, stat) {
   const electionDay = HISTORY_ELECTION_DAYS[year];
   if (!electionDay) return null;
-  return addIsoDays(electionDay, -daysOutFromElectionDay());
+  return addIsoDays(electionDay, -daysOutFromElectionDay(stat));
 }
 
 // Running total for a past year as of its equivalent day.
@@ -620,7 +673,7 @@ function historyTotals(joinKey, year, stat) {
   const rec = historyRecordFor(year, joinKey);
   if (!rec) return null;
   if (state.historyMode === "final") return statTotals(rec, stat);
-  const asOf = historyAsOfIso(year);
+  const asOf = historyAsOfIso(year, stat);
   if (!asOf) return null;
   return historyTotalsAsOf(rec, stat, asOf);
 }
@@ -2722,6 +2775,7 @@ function stateChamberOverviewHtml() {
     ${statewideCardsHtml()}
     ${stateChronoButtonsHtml()}
     <div class="detail-break"></div>
+    ${dataAsOfNoteHtml()}
     ${targetDistrictsSectionHtml()}
     <div class="detail-section-title centered-section-title">Districts</div>
     ${districtTableHtml()}
@@ -2819,6 +2873,7 @@ function chronoViewHtml() {
     ${statewideCardsHtml()}
     ${stateChronoButtonsHtml()}
     <div class="detail-break"></div>
+    ${dataAsOfNoteHtml()}
     <div class="detail-section-title centered-section-title">${escapeHtml(title)}</div>
     ${chronoTableHtml(chronoRows(), { cumulative: state.chronoCumulative, joinKey: null })}
   `;

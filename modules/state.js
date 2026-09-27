@@ -37,6 +37,7 @@ export const state = {
   timelineByFips: new Map(),
   chamberNamesByState: new Map(),
   updatedDate: "",
+  refreshedAt: "", // national.json refreshed_at: when daily_update.py last ran
   isSampleData: false,
 
   // District Explorer data (targets / incumbents / past leg margins), lazily
