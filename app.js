@@ -2590,10 +2590,20 @@ const STAT_HEAD_LINES = {
 // Past-cycle headers, per view. The year rides on the first line with the stat
 // name so the break lands where it keeps the column narrowest
 // ("2024 AB" / "Returned", not "2024" / "AB Returned").
-const HISTORY_HEAD_LINES = {
-  ab: { count: (y) => [`${y} AB`, "Returned"], margin: (y) => [`${y} Ret.`, "Margin"] },
-  ev: { count: (y) => [`${y} EV`, "Total"], margin: (y) => [`${y} EV`, "Margin"] },
-  abev: { count: (y) => [`${y} ABEV`, "Total"], margin: (y) => [`${y} ABEV`, "Margin"] },
+// Which stats a past cycle shows per view, and how each one's two headers read.
+// A view can list more than one: the Absentees view carries BOTH requested and
+// returned for every past year, mirroring its 2026 columns, because a request
+// margin and a return margin answer different questions - who asked for a ballot
+// versus who actually sent one back - and the request side moves first in the
+// cycle. Headers are deliberately identical in shape to the 2026 pair beside
+// them so the eye can track one stat across the years.
+const HISTORY_STAT_COLS = {
+  ab: [
+    { key: "requested", count: (y) => [`${y}`, "Requested"], margin: (y) => [`${y} Req.`, "Margin"] },
+    { key: "returned", count: (y) => [`${y} AB`, "Returned"], margin: (y) => [`${y} Ret.`, "Margin"] },
+  ],
+  ev: [{ key: "ev", count: (y) => [`${y} EV`, "Total"], margin: (y) => [`${y} EV`, "Margin"] }],
+  abev: [{ key: "voted", count: (y) => [`${y} ABEV`, "Total"], margin: (y) => [`${y} ABEV`, "Margin"] }],
 };
 
 const MARGIN_HEAD_LINES = {
@@ -2640,19 +2650,23 @@ function viewColumnDefs(view, { withHistory = false, chrono = false } = {}) {
   // every group stays framed on both sides with no doubled separators.
   // Headers mirror the 2026 columns beside them, broken at the same point so
   // each column stays as narrow as its longest word.
-  const stat = VIEW_MAP_STAT[view] || "voted";
-  const heads = HISTORY_HEAD_LINES[view] || HISTORY_HEAD_LINES.abev;
+  const specs = HISTORY_STAT_COLS[view] || HISTORY_STAT_COLS.abev;
 
   const history = [];
   for (const year of HISTORY_YEARS) {
     // A year on retired district lines keeps its columns — so the years line up
     // with every other state — but every cell reads N/A.
     const na = !historyYearAppliesToSelectedState(year);
-    history.push(
-      { type: "gap" },
-      { key: stat, year, na, kind: "count", label: heads.count(year), sortKey: `hist${year}` },
-      { key: stat, year, na, kind: "margin", label: heads.margin(year), sortKey: `hist${year}_margin` },
-    );
+    // Each stat gets its own leading gap, so a two-stat view reads
+    // "| 2022 Requested | 2022 Req. Margin | 2022 AB Returned | 2022 Ret. Margin |"
+    // with the same framing the 2026 group uses.
+    for (const spec of specs) {
+      history.push(
+        { type: "gap" },
+        { key: spec.key, year, na, kind: "count", label: spec.count(year), sortKey: `hist${year}_${spec.key}` },
+        { key: spec.key, year, na, kind: "margin", label: spec.margin(year), sortKey: `hist${year}_${spec.key}_margin` },
+      );
+    }
   }
   return [...history, ...cols];
 }
@@ -2810,13 +2824,15 @@ function districtRowsForSelectedState() {
       const margin = legMarginRPositive(deRecordFor(row.joinKey), Number(legMatch[1]));
       return typeof margin === "number" ? margin : Number.NEGATIVE_INFINITY;
     }
-    const histMatch = key.match(/^hist(\d{4})(_margin)?$/);
+    // hist<year>_<stat>[_margin] — the stat is in the key because one view can
+    // show several per year (Absentees: requested and returned).
+    const histMatch = key.match(/^hist(\d{4})_([a-z]+?)(_margin)?$/);
     if (histMatch) {
       // An N/A column sorts like any other blank rather than by its hidden data.
       if (!historyYearAppliesToDistrict(Number(histMatch[1]), row.joinKey)) return Number.NEGATIVE_INFINITY;
-      const totals = historyTotals(row.joinKey, Number(histMatch[1]), VIEW_MAP_STAT[state.abevView] || "voted");
+      const totals = historyTotals(row.joinKey, Number(histMatch[1]), histMatch[2]);
       if (!totals) return Number.NEGATIVE_INFINITY;
-      if (!histMatch[2]) return totals.total;
+      if (!histMatch[3]) return totals.total;
       const netPct = netPctFromTotals(totals);
       return typeof netPct === "number" ? netPct : Number.NEGATIVE_INFINITY;
     }
