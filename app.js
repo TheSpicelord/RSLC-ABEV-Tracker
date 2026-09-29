@@ -1,4 +1,4 @@
-import { requireAuth } from "./modules/auth.js?v=20260929a";
+import { requireAuth } from "./modules/auth.js?v=20260929b";
 import {
   ABEV_HISTORY_INDEX_URL,
   ABEV_INDEX_URL,
@@ -31,7 +31,7 @@ import {
   VIEW_BUTTON_LABELS,
   VIEW_CARD_LABELS,
   VIEW_MAP_STAT,
-} from "./modules/config.js?v=20260929a";
+} from "./modules/config.js?v=20260929b";
 import {
   details,
   detailsTitle,
@@ -45,15 +45,15 @@ import {
   targetDistrictsToggle,
   updatedBadge,
   upIn2026Toggle,
-} from "./modules/dom.js?v=20260929a";
-import { state } from "./modules/state.js?v=20260929a";
-import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20260929a";
+} from "./modules/dom.js?v=20260929b";
+import { state } from "./modules/state.js?v=20260929b";
+import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20260929b";
 
 if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260929a";
+const BUILD_VERSION = "20260929b";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -584,6 +584,12 @@ function historyTimelineForScope(year, joinKey) {
 // 2024 returns, against 588 on the district's own last row, 9/22). Per stat,
 // since returns can trail requests by a day. A stat with no dated activity
 // falls back to the latest day of any stat, then to today.
+//
+// Thin trailing days don't count (partialDaysTrimmed). The feed is extracted
+// part-way through a day, so its last date often holds a handful of records
+// from a day that has barely started: PA on 9/29 had 2 requests against ~5,900
+// on a normal day, which made the note, the daily table and the trend all end on
+// a 9/29 whose cumulative figures just repeated 9/28's.
 function currentDataIsoForSelectedState(stat = mapStat()) {
   const fips = normalizeStateFips(state.selectedState?.fips);
   const timeline = state.timelineByFips.get(fips);
@@ -591,18 +597,47 @@ function currentDataIsoForSelectedState(stat = mapStat()) {
   const electionDay = electionDayForSelectedState();
   const cap = electionDay < todayIso ? electionDay : todayIso;
   const latestFor = (parts) => {
-    let latest = null;
+    const byDate = new Map();
     for (const part of parts) {
       for (const row of timeline?.[part] || []) {
         const key = String(row.date || "");
         if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || key > cap) continue;
-        if (!(Number(row.rep || 0) + Number(row.dem || 0) + Number(row.toss || 0))) continue;
-        if (!latest || key > latest) latest = key;
+        const n = Number(row.rep || 0) + Number(row.dem || 0) + Number(row.toss || 0);
+        if (n) byDate.set(key, (byDate.get(key) || 0) + n);
       }
     }
-    return latest;
+    const days = [...byDate].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+    const end = days.length - 1 - partialDaysTrimmed(days.map((d) => d[1]));
+    return end >= 0 ? days[end][0] : null;
   };
   return latestFor(stat === "voted" ? ["returned", "ev"] : [stat]) || latestFor(CHRONO_STATS) || cap;
+}
+
+// How many of a series' trailing days to treat as a partial extract: each under
+// PARTIAL_DAY_SHARE of the median of the week before it, at most
+// PARTIAL_DAY_MAX_TRIM of them. Only trailing days are ever tested, because a
+// real weekend is just as thin - OH logged 8 requests on Saturday 9/26 against
+// ~20k on weekdays - and only its position at the very end marks a day as
+// unfinished. 5% sits between the thin tails seen on 2026-09-29 (PA 0.03%, FL
+// 0.4%, IL 2.3%, IA 4.6%) and the smallest real final days (ME 7.8%, CO 8.9%).
+// The cap covers a quiet weekend plus a partial Monday without letting a slow
+// stretch eat back into real data.
+const PARTIAL_DAY_SHARE = 0.05;
+const PARTIAL_DAY_MAX_TRIM = 3;
+
+function partialDaysTrimmed(counts) {
+  let end = counts.length - 1;
+  let trimmed = 0;
+  while (end > 0 && trimmed < PARTIAL_DAY_MAX_TRIM) {
+    const week = counts.slice(Math.max(0, end - 7), end).sort((a, b) => a - b);
+    const median = week.length % 2
+      ? week[(week.length - 1) / 2]
+      : (week[week.length / 2 - 1] + week[week.length / 2]) / 2;
+    if (counts[end] >= median * PARTIAL_DAY_SHARE) break;
+    end -= 1;
+    trimmed += 1;
+  }
+  return trimmed;
 }
 
 // How far the current cycle's data is from its election day. Past years are
@@ -2953,9 +2988,11 @@ function chronoStatsHaveData(stats) {
 // vote. In cumulative mode that bucket is the running-total baseline.
 function buildChronoRows(byDate, mode, earlierLabel, cumulative = false) {
   if (!byDate || !byDate.size) return [];
-  const todayIso = localTodayIso();
-  const electionDay = electionDayForSelectedState();
-  const cutoffIso = electionDay < todayIso ? electionDay : todayIso;
+  // Rows stop at the view's last complete day of data, not today: a partial
+  // extract day (a couple of records) would otherwise add a newest row whose
+  // cumulative figures just repeat the day before. Its records fold into the
+  // Earlier/Unk row like any other out-of-window date, so totals still reconcile.
+  const cutoffIso = currentDataIsoForSelectedState();
   const startIso = abevStartForSelectedState();
 
   const earlier = emptyChronoStats();
@@ -3340,13 +3377,14 @@ function buildTrendSeries(ctx) {
     : electionDay;
   if (domainEnd < start) return null;
 
-  const cutoff = electionDay < todayIso ? electionDay : todayIso;
+  // The current line stops where the tables do (see buildChronoRows).
+  const cutoff = currentDataIsoForSelectedState(stat);
   const series = [];
   for (const year of years) {
     const byDate = trendByDateForYear(ctx, year);
     if (!byDate || !byDate.size) continue;
     // Past cycles are finished, so they run the full domain; only the current
-    // one stops at today.
+    // one stops at its last complete day of data.
     const yearCutoff = year === trendCurrentYear() ? cutoff : domainEnd;
     const points = trendPointsFor(byDate, { ctx, stat, start, domainEnd, cutoff: yearCutoff, isoRe });
     if (points.length) series.push({ year, points });
