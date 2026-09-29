@@ -1,4 +1,4 @@
-import { requireAuth } from "./modules/auth.js?v=20260925a";
+import { requireAuth } from "./modules/auth.js?v=20260929a";
 import {
   ABEV_HISTORY_INDEX_URL,
   ABEV_INDEX_URL,
@@ -31,7 +31,7 @@ import {
   VIEW_BUTTON_LABELS,
   VIEW_CARD_LABELS,
   VIEW_MAP_STAT,
-} from "./modules/config.js?v=20260925a";
+} from "./modules/config.js?v=20260929a";
 import {
   details,
   detailsTitle,
@@ -45,15 +45,15 @@ import {
   targetDistrictsToggle,
   updatedBadge,
   upIn2026Toggle,
-} from "./modules/dom.js?v=20260925a";
-import { state } from "./modules/state.js?v=20260925a";
-import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20260925a";
+} from "./modules/dom.js?v=20260929a";
+import { state } from "./modules/state.js?v=20260929a";
+import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20260929a";
 
 if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260925a";
+const BUILD_VERSION = "20260929a";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -1212,7 +1212,7 @@ function wireEvents() {
       applyFineZoomMode(true);
     }
 
-    if (/^[1-3]$/.test(e.key)) {
+    if (/^[1-4]$/.test(e.key)) {
       const idx = Number(e.key) - 1;
       if (idx < ABEV_VIEWS.length) {
         e.preventDefault();
@@ -2498,7 +2498,7 @@ function viewCardsHtml(rec) {
     })
     .join("");
 
-  return `<div class="statewide-stats-grid three-cards">${cards}</div>`;
+  return `<div class="statewide-stats-grid view-cards">${cards}</div>`;
 }
 
 // Districts / Daily / Weekly selector shown under the statewide cards, with the
@@ -2591,17 +2591,13 @@ const STAT_HEAD_LINES = {
 // name so the break lands where it keeps the column narrowest
 // ("2024 AB" / "Returned", not "2024" / "AB Returned").
 // Which stats a past cycle shows per view, and how each one's two headers read.
-// A view can list more than one: the Absentees view carries BOTH requested and
-// returned for every past year, mirroring its 2026 columns, because a request
-// margin and a return margin answer different questions - who asked for a ballot
-// versus who actually sent one back - and the request side moves first in the
-// cycle. Headers are deliberately identical in shape to the 2026 pair beside
-// them so the eye can track one stat across the years.
+// A view may list more than one (the old combined Absentees view carried both
+// requested and returned); since requests and returns became separate views,
+// each lists one. Headers are deliberately identical in shape to the 2026 pair
+// beside them so the eye can track one stat across the years.
 const HISTORY_STAT_COLS = {
-  ab: [
-    { key: "requested", count: (y) => [`${y}`, "Requested"], margin: (y) => [`${y} Req.`, "Margin"] },
-    { key: "returned", count: (y) => [`${y} AB`, "Returned"], margin: (y) => [`${y} Ret.`, "Margin"] },
-  ],
+  abreq: [{ key: "requested", count: (y) => [`${y}`, "Requested"], margin: (y) => [`${y} Req.`, "Margin"] }],
+  abret: [{ key: "returned", count: (y) => [`${y} AB`, "Returned"], margin: (y) => [`${y} Ret.`, "Margin"] }],
   ev: [{ key: "ev", count: (y) => [`${y} EV`, "Total"], margin: (y) => [`${y} EV`, "Margin"] }],
   abev: [{ key: "voted", count: (y) => [`${y} ABEV`, "Total"], margin: (y) => [`${y} ABEV`, "Margin"] }],
 };
@@ -2617,11 +2613,14 @@ const MARGIN_HEAD_LINES = {
 // call this without the flag and never show past cycles.
 function viewColumnDefs(view, { withHistory = false, chrono = false } = {}) {
   let cols;
-  if (view === "ab") {
+  if (view === "abreq") {
     cols = [
       { type: "gap" },
       { key: "requested", kind: "count", label: ["2026", "Requested"], sortKey: "requested" },
       { key: "requested", kind: "margin", label: ["2026 Req.", "Margin"], sortKey: "requested_margin" },
+    ];
+  } else if (view === "abret") {
+    cols = [
       { type: "gap" },
       { key: "returned", kind: "count", label: ["2026 AB", "Returned"], sortKey: "returned" },
       { key: "returned", kind: "margin", label: ["2026 Ret.", "Margin"], sortKey: "returned_margin" },

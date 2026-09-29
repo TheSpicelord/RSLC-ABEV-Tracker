@@ -2669,9 +2669,9 @@ html.auth-pending main {
 
 /* The sidebar is width:max-content, so it widens to fit the district table;
    cap the cards so they keep a fixed size instead of stretching with it. */
-.statewide-stats-grid.three-cards {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  max-width: 400px;
+.statewide-stats-grid.view-cards {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  max-width: 480px;
   margin-left: auto;
   margin-right: auto;
 }

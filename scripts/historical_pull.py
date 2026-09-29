@@ -62,10 +62,10 @@ from daily_update import (
     ABBR_TO_FIPS,
     ABBR_TO_NAME,
     BUCKETS,
-    STATE_MODELS,
     STATS,
     connect,
     load_config,
+    model_for,
     normalize_district_id,
 )
 
@@ -675,9 +675,11 @@ def main():
         years.append(int(token))
 
     states = [s.strip().upper() for s in args.states.split(",") if s.strip()]
+    # A state with no STATE_MODELS entry takes the national fallback, exactly as
+    # the daily pull does (ME and VT), so its history is bucketed the same way.
     for abbr in states:
-        if abbr not in STATE_MODELS:
-            sys.exit(f"No model configured for {abbr} - add it to STATE_MODELS in daily_update.py")
+        if abbr not in ABBR_TO_FIPS:
+            sys.exit(f"Unknown state {abbr}")
 
     updated = date.today().isoformat()
     cfg = load_config()
@@ -690,7 +692,7 @@ def main():
             print(f"\n=== {year} ({table}) ===")
             results = {}
             for abbr in states:
-                model = STATE_MODELS[abbr]
+                model = model_for(abbr)
                 run_diagnostics(conn, table, abbr, model, ycfg)
                 results[abbr] = pull_state_year(conn, table, abbr, model, ycfg)
             if not args.dry_run:

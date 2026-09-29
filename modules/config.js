@@ -291,6 +291,9 @@ export const STATE_DATA_NOTES = {
     { chambers: ["senate"], text: "Senate district is blank on ~1.2% of records, missing from the senate rollup only." },
     { years: [2022], text: "2022 model match is 82.5% against 90.4% in 2024, inflating that year's Swing bucket." },
   ],
+  "08": [
+    { stats: ["requested"], text: "Colorado mails every voter a ballot, so requests are ballots sent. 2024's are dated almost entirely Oct 11, so past-cycle request counts before mid-October do not compare." },
+  ],
   "09": [
     { years: [2022], stats: ["ev"], text: "Connecticut had no early voting until 2024; the 2022 zero is correct." },
   ],
@@ -306,7 +309,7 @@ export const STATE_DATA_NOTES = {
   "24": [
     { chambers: ["house"], text: "House subdistricts rebuilt from the voter file; 85-92% attribution in the 18 subdivided districts." },
   ],
-  "25": [{ text: "Massachusetts is not loaded: no 2022 records, and its district codes do not map to district numbers." }],
+  "25": [{ years: [2022], text: "Massachusetts is absent from the 2022 feed entirely." }],
   "28": [{ years: [2022], text: "Mississippi is absent from the 2022 feed entirely." }],
   "29": [{ text: "Requests only; Missouri's feed carries no return or early-vote records." }],
   "30": [
@@ -341,6 +344,7 @@ export const STATE_DATA_NOTES = {
   "48": [
     { years: [2022, 2024], stats: ["requested"], text: "No request dates in either historical year." },
   ],
+  "50": [{ text: "Vermont's feed carries no legislative district, in 2026 or past cycles; statewide totals only." }],
   "53": [
     { stats: ["ev"], text: "Washington votes by mail; Early Vote is a 0.3% rounding error by design." },
   ],
@@ -357,24 +361,29 @@ export const STAT_LABELS = {
   voted: "Total Votes",
 };
 
-// The three display views. Each drives the sidebar table layout and the stat
-// used for map coloring.
-export const ABEV_VIEWS = ["ab", "ev", "abev"];
+// The four display views. Each drives the sidebar table layout and the stat
+// used for map coloring. AB requests and returns were one "Absentees" view
+// until 2026-09-29; with past cycles on, that was twelve numeric columns - too
+// many to read and too wide for a small screen - so each is now its own view.
+export const ABEV_VIEWS = ["abreq", "abret", "ev", "abev"];
 
 export const VIEW_BUTTON_LABELS = {
-  ab: "Absentees",
+  abreq: "AB Req",
+  abret: "AB Ret",
   ev: "Early Votes",
   abev: "ABEV Total",
 };
 
 export const VIEW_CARD_LABELS = {
-  ab: "Absentee Votes",
+  abreq: "AB Req",
+  abret: "AB Ret",
   ev: "Early Votes",
   abev: "ABEV Totals",
 };
 
 export const VIEW_MAP_STAT = {
-  ab: "returned",
+  abreq: "requested",
+  abret: "returned",
   ev: "ev",
   abev: "voted",
 };
