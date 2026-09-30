@@ -1,5 +1,5 @@
 {
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "years": {
     "2022": {
       "house": [
@@ -29,6 +29,7 @@
         "data/abev/history/2022/nh_house.json",
         "data/abev/history/2022/nj_house.json",
         "data/abev/history/2022/nm_house.json",
+        "data/abev/history/2022/nv_house.json",
         "data/abev/history/2022/ny_house.json",
         "data/abev/history/2022/oh_house.json",
         "data/abev/history/2022/ok_house.json",
@@ -73,6 +74,7 @@
         "data/abev/history/2022/nh_senate.json",
         "data/abev/history/2022/nj_senate.json",
         "data/abev/history/2022/nm_senate.json",
+        "data/abev/history/2022/nv_senate.json",
         "data/abev/history/2022/ny_senate.json",
         "data/abev/history/2022/oh_senate.json",
         "data/abev/history/2022/ok_senate.json",
@@ -94,6 +96,7 @@
         "data/abev/history/2022/fl_cong.json",
         "data/abev/history/2022/me_cong.json",
         "data/abev/history/2022/mn_cong.json",
+        "data/abev/history/2022/nv_cong.json",
         "data/abev/history/2022/ok_cong.json",
         "data/abev/history/2022/sc_cong.json"
       ],
@@ -129,6 +132,7 @@
         "data/abev/history/2024/nh_house.json",
         "data/abev/history/2024/nj_house.json",
         "data/abev/history/2024/nm_house.json",
+        "data/abev/history/2024/nv_house.json",
         "data/abev/history/2024/ny_house.json",
         "data/abev/history/2024/oh_house.json",
         "data/abev/history/2024/ok_house.json",
@@ -175,6 +179,7 @@
         "data/abev/history/2024/nh_senate.json",
         "data/abev/history/2024/nj_senate.json",
         "data/abev/history/2024/nm_senate.json",
+        "data/abev/history/2024/nv_senate.json",
         "data/abev/history/2024/ny_senate.json",
         "data/abev/history/2024/oh_senate.json",
         "data/abev/history/2024/ok_senate.json",
@@ -199,6 +204,7 @@
         "data/abev/history/2024/me_cong.json",
         "data/abev/history/2024/mn_cong.json",
         "data/abev/history/2024/ms_cong.json",
+        "data/abev/history/2024/nv_cong.json",
         "data/abev/history/2024/ok_cong.json",
         "data/abev/history/2024/sc_cong.json"
       ],

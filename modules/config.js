@@ -315,6 +315,10 @@ export const STATE_DATA_NOTES = {
   "30": [
     { stats: ["ev"], text: "Early-vote records are missing from the feed; Montana does allow in-person absentee voting." },
   ],
+  "32": [
+    { stats: ["requested"], text: "Nevada mails every voter a ballot, so requests are ballots sent, dated in bulk at each mailing (2024's mid-October, 2026's 9/29). Past-cycle request counts before mid-October do not compare." },
+    { years: [2022], text: "2022 model match is 81.3% against 93.7% in 2024, inflating that year's Swing bucket." },
+  ],
   "33": [
     { text: "Margins calculated using gubernatorial model." },
     { stats: ["ev"], text: "No in-person early voting in New Hampshire." },
