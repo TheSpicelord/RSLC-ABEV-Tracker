@@ -74,7 +74,8 @@ OUT_BASE = PROJECT_ROOT / "data" / "abev" / "history"
 
 # Per-year settings. cycle_start: requests before it are permanent-absentee
 # signups (bucketed "pre<year>"); election_day: events after it are data errors
-# (bucketed "unknown"). election_type_filter: applied to WHERE when not None.
+# (bucketed "unknown"). election_type_filter: applied to WHERE when not None;
+# "{abbr}" in it is replaced with the state, for years labelled per state.
 YEAR_CONFIG = {
     2022: {
         "cycle_start": date(2022, 1, 1),
@@ -86,7 +87,25 @@ YEAR_CONFIG = {
         "election_day": date(2024, 11, 5),
         "election_type_filter": None,  # appears general-only; diagnostics confirm
     },
+    # Odd-year generals, pulled for VA and NJ only (2026-10-01): both elected
+    # their legislatures on 2025-11-04 on the same lines as 2026, which makes
+    # 2025 the closest like-for-like comparison either state has. Their 2022 and
+    # 2024 were federal cycles with no state-leg race. The 2025 view also holds
+    # CA, CO, ME, PA, TX and WI, but nothing in them is a legislative general.
+    # Labels are per state ("VA General Election"), like the 2026 feed.
+    2025: {
+        "cycle_start": date(2025, 1, 1),
+        "election_day": date(2025, 11, 4),
+        "election_type_filter": "{abbr} General Election",
+        # The 2025 view names the voter GUID DT_REGID where 2022/2024/2026 say
+        # RNC_RegID. Same identifier, the one every model's dt_regid joins on.
+        "regid_col": "DT_REGID",
+    },
 }
+
+# Years pulled for only some states: any other state passed in --states is
+# skipped for that year. A year not listed here has no restriction.
+YEAR_STATES = {2025: ["VA", "NJ"]}
 
 
 # Real district-number ceilings per chamber. The historical feeds carry sentinel
@@ -274,7 +293,7 @@ def table_for_year(year):
     return f"dbo.General_Absentees_{year}"
 
 
-def historical_query(table, model, has_election_type_filter):
+def historical_query(table, model, has_election_type_filter, regid_col="RNC_RegID"):
     """One aggregate query per state: counts by district triple, stat, bucket, date.
 
     Mirrors daily_update.state_query but against a historical table and with an
@@ -303,7 +322,7 @@ WITH scored AS (
         {model['bucket_sql']} AS bucket
     FROM {table} a
     LEFT JOIN {model['model_table']} m
-        ON m.{model['join_col']} = CONVERT(varchar(36), a.RNC_RegID)
+        ON m.{model['join_col']} = CONVERT(varchar(36), a.{regid_col})
     {extra_join}
     WHERE a.State = ?{filter_sql}
 ),
@@ -341,7 +360,7 @@ def run_diagnostics(conn, table, abbr, model, ycfg):
     """Print the ElectionType breakdown, model match rate, and NULL-district
     share, and hard-flag anything funky (e.g. a chamber with all-0 districts)."""
     cursor = conn.cursor()
-    filt = ycfg["election_type_filter"]
+    filt = (ycfg["election_type_filter"] or "").format(abbr=abbr) or None
     print(f"  diagnostics [{abbr}]:")
 
     # ElectionType distribution (guard: the column may not exist for every year)
@@ -375,7 +394,7 @@ def run_diagnostics(conn, table, abbr, model, ycfg):
             SUM(CASE WHEN a.SenateDistrict IS NULL OR LTRIM(RTRIM(a.SenateDistrict)) IN ('', '0') THEN 1 ELSE 0 END) AS null_sd
         FROM {table} a
         LEFT JOIN {model['model_table']} m
-            ON m.{model['join_col']} = CONVERT(varchar(36), a.RNC_RegID)
+            ON m.{model['join_col']} = CONVERT(varchar(36), a.{ycfg.get("regid_col", "RNC_RegID")})
         WHERE a.State = ?{filt_sql}
         """,
         params,
@@ -413,8 +432,8 @@ def pull_state_year(conn, table, abbr, model, ycfg):
     cursor = conn.cursor()
     params = [abbr]
     if has_filter:
-        params.append(ycfg["election_type_filter"])
-    cursor.execute(historical_query(table, model, has_filter), params)
+        params.append(ycfg["election_type_filter"].format(abbr=abbr))
+    cursor.execute(historical_query(table, model, has_filter, ycfg.get("regid_col", "RNC_RegID")), params)
     rows = cursor.fetchall()
     print(f"  [{abbr}] {len(rows):,} aggregate rows returned.")
 
@@ -692,6 +711,9 @@ def main():
             print(f"\n=== {year} ({table}) ===")
             results = {}
             for abbr in states:
+                if year in YEAR_STATES and abbr not in YEAR_STATES[year]:
+                    print(f"  [{abbr}] skipped: {year} is pulled for {', '.join(YEAR_STATES[year])} only.")
+                    continue
                 model = model_for(abbr)
                 run_diagnostics(conn, table, abbr, model, ycfg)
                 results[abbr] = pull_state_year(conn, table, abbr, model, ycfg)

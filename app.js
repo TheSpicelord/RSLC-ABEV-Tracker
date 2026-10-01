@@ -1,4 +1,4 @@
-import { requireAuth } from "./modules/auth.js?v=20260930a";
+import { requireAuth } from "./modules/auth.js?v=20261001a";
 import {
   ABEV_HISTORY_INDEX_URL,
   ABEV_INDEX_URL,
@@ -22,6 +22,7 @@ import {
   HISTORY_STALE_LINES,
   HISTORY_STALE_DISTRICTS,
   HISTORY_YEARS,
+  HISTORY_YEAR_STATES,
   LEG_REDISTRICTING_NOTES,
   NATIONAL_CENTER,
   NATIONAL_ZOOM,
@@ -31,7 +32,7 @@ import {
   VIEW_BUTTON_LABELS,
   VIEW_CARD_LABELS,
   VIEW_MAP_STAT,
-} from "./modules/config.js?v=20260930a";
+} from "./modules/config.js?v=20261001a";
 import {
   details,
   detailsTitle,
@@ -45,15 +46,15 @@ import {
   targetDistrictsToggle,
   updatedBadge,
   upIn2026Toggle,
-} from "./modules/dom.js?v=20260930a";
-import { state } from "./modules/state.js?v=20260930a";
-import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20260930a";
+} from "./modules/dom.js?v=20261001a";
+import { state } from "./modules/state.js?v=20261001a";
+import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261001a";
 
 if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20260930a";
+const BUILD_VERSION = "20261001a";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -514,6 +515,18 @@ function historyRecordFor(year, joinKey, chamber = state.chamber) {
   return state.historyByKey.get(`${year}|${abbr}|${chamber}`)?.get(joinKey) || null;
 }
 
+// The past years the selected state shows: every HISTORY_YEARS entry, less any
+// limited to other states (HISTORY_YEAR_STATES - 2025 is VA and NJ only).
+function historyYearsForSelectedState() {
+  const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
+  return HISTORY_YEARS.filter((year) => !HISTORY_YEAR_STATES[year] || HISTORY_YEAR_STATES[year].includes(abbr));
+}
+
+// "2022 / 2024 / 2025" - the years on screen, for button titles and notes.
+function historyYearsLabel() {
+  return historyYearsForSelectedState().join(" / ");
+}
+
 // Does this state have any past-cycle data at all? Drives whether the
 // Historical ABEV toggle is worth showing. District tables read the per-district
 // files; the statewide chrono tables read the per-year timeline.
@@ -521,7 +534,7 @@ function historyAvailableForSelectedState() {
   const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
   if (!abbr) return false;
   const fips = normalizeStateFips(state.selectedState?.fips);
-  return HISTORY_YEARS.some(
+  return historyYearsForSelectedState().some(
     (year) =>
       (state.historyByKey.get(`${year}|${abbr}|${state.chamber}`)?.size || 0) > 0 ||
       !!state.historyTimelineByYear.get(year)?.get(fips)
@@ -2585,7 +2598,7 @@ function chronoCumulativeBoxHtml(mode, cumulative, dataAttr) {
 // no backfill (and districts with no past-cycle record).
 function historyModeButtonsHtml({ chrono = false, joinKey = null } = {}) {
   const available = chrono && joinKey
-    ? HISTORY_YEARS.some((year) => !!historyRecordFor(year, joinKey))
+    ? historyYearsForSelectedState().some((year) => !!historyRecordFor(year, joinKey))
     : historyAvailableForSelectedState();
   if (!available) return "";
 
@@ -2594,11 +2607,11 @@ function historyModeButtonsHtml({ chrono = false, joinKey = null } = {}) {
   const button = (value, label, title) =>
     `<button type="button" class="option-btn${active === value ? " option-btn-active" : ""}" data-history-mode="${value}" title="${escapeHtml(title)}">${label}</button>`;
   const onThisDayTitle = chrono
-    ? "Each row against the same days-out in 2022 / 2024"
-    : `2022 / 2024 as of ${daysOut} days before their own election day`;
+    ? `Each row against the same days-out in ${historyYearsLabel()}`
+    : `${historyYearsLabel()} as of ${daysOut} days before their own election day`;
   const note = active === "onthisday"
     ? chrono
-      ? "each row aligned to the same days-out in 2022 / 2024"
+      ? `each row aligned to the same days-out in ${historyYearsLabel()}`
       : `As of ${daysOut} days before election.`
     : active === "final"
       ? "ABEV totals on election day."
@@ -2607,9 +2620,9 @@ function historyModeButtonsHtml({ chrono = false, joinKey = null } = {}) {
     <div class="option-box">
       <div class="option-box-title">Historical ABEV</div>
       <div class="option-box-buttons">
-        ${button("none", "None", "Hide the 2022 and 2024 columns")}
+        ${button("none", "None", `Hide the ${historyYearsLabel()} columns`)}
         ${button("onthisday", "On This Day", onThisDayTitle)}
-        ${chrono ? "" : button("final", "Final Results", "2022 / 2024 complete election-day totals")}
+        ${chrono ? "" : button("final", "Final Results", `${historyYearsLabel()} complete election-day totals`)}
       </div>
       ${note ? `<div class="option-box-note">${escapeHtml(note)}</div>` : ""}
     </div>
@@ -2687,7 +2700,7 @@ function viewColumnDefs(view, { withHistory = false, chrono = false } = {}) {
   const specs = HISTORY_STAT_COLS[view] || HISTORY_STAT_COLS.abev;
 
   const history = [];
-  for (const year of HISTORY_YEARS) {
+  for (const year of historyYearsForSelectedState()) {
     // A year on retired district lines keeps its columns — so the years line up
     // with every other state — but every cell reads N/A.
     const na = !historyYearAppliesToSelectedState(year);
@@ -3318,7 +3331,7 @@ function trendCurrentYear() {
 // district lines still match today's — a year that reads N/A in the tables has
 // no line to draw either.
 function trendYearsForScope(ctx) {
-  const years = HISTORY_YEARS.filter(
+  const years = historyYearsForSelectedState().filter(
     (year) =>
       historyYearAppliesToDistrict(year, ctx.joinKey) && !!historyTimelineForScope(year, ctx.joinKey)
   );
@@ -3545,11 +3558,17 @@ function renderTrendChart() {
 }
 
 // Line style per cycle: the current one solid and full strength, past ones
-// progressively lighter and more broken up.
+// progressively lighter and more broken up, ranked newest first among the years
+// this state shows - so VA/NJ's 2025 takes the dashed line other states give
+// 2024, and their 2024 drops to dotted. A third past year gets a fainter dot;
+// the legend can only say "dotted" for both, so the year label beside each
+// swatch is what tells them apart.
 function trendYearStyle(year) {
   if (year === trendCurrentYear()) return { dash: "", width: 2, opacity: 1, legend: "solid" };
-  if (year === Math.max(...HISTORY_YEARS)) return { dash: "7 4", width: 1.7, opacity: 0.8, legend: "dashed" };
-  return { dash: "2 3", width: 1.5, opacity: 0.62, legend: "dotted" };
+  const rank = [...historyYearsForSelectedState()].sort((a, b) => b - a).indexOf(year);
+  if (rank === 0) return { dash: "7 4", width: 1.7, opacity: 0.8, legend: "dashed" };
+  if (rank === 1) return { dash: "2 3", width: 1.5, opacity: 0.62, legend: "dotted" };
+  return { dash: "1 4", width: 1.4, opacity: 0.45, legend: "dotted" };
 }
 
 function trendSvgHtml(seriesSet, mode) {

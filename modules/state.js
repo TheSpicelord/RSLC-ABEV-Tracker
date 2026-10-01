@@ -83,7 +83,7 @@ export const state = {
   trendChartEndAtToday: false,
   // Which cycles the trend graph draws. Past years are only offered where the
   // scope actually has a backfill.
-  trendYears: { 2022: false, 2024: false, 2026: true },
+  trendYears: { 2022: false, 2024: false, 2025: false, 2026: true },
   hasOpenPopup: false,
   suspendPopupCloseOverview: false,
 

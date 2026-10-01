@@ -25,10 +25,20 @@ export const ABEV_HISTORY_INDEX_URL = "data/abev/history/history.json";
 // Past general elections shown alongside the current cycle. Election days are
 // the real ones for those years (historical_pull.py YEAR_CONFIG) — "On This Day"
 // aligns each year by days-out from its own election day, so they must match.
-export const HISTORY_YEARS = [2022, 2024];
+export const HISTORY_YEARS = [2022, 2024, 2025];
 export const HISTORY_ELECTION_DAYS = {
   2022: "2022-11-08",
   2024: "2024-11-05",
+  2025: "2025-11-04",
+};
+
+// Past years that only some states carry. Every other state gets no column,
+// trend line or label for them - unlike a year a state is merely missing (KY
+// 2024), which keeps its columns as "—" so the years line up. 2025 is the
+// odd-year general in which VA and NJ elected their legislatures, on the same
+// lines as 2026, so it is the closest comparison either has.
+export const HISTORY_YEAR_STATES = {
+  2025: ["VA", "NJ"],
 };
 
 // Past cycles whose ABEV can't be mapped onto today's districts, because the

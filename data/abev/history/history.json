@@ -1,5 +1,5 @@
 {
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "years": {
     "2022": {
       "house": [
@@ -210,6 +210,22 @@
       ],
       "national": "data/abev/history/2024/national.json",
       "timeline": "data/abev/history/2024/timeline.json"
+    },
+    "2025": {
+      "house": [
+        "data/abev/history/2025/nj_house.json",
+        "data/abev/history/2025/va_house.json"
+      ],
+      "senate": [
+        "data/abev/history/2025/nj_senate.json",
+        "data/abev/history/2025/va_senate.json"
+      ],
+      "cong": [
+        "data/abev/history/2025/nj_cong.json",
+        "data/abev/history/2025/va_cong.json"
+      ],
+      "national": "data/abev/history/2025/national.json",
+      "timeline": "data/abev/history/2025/timeline.json"
     }
   }
 }
