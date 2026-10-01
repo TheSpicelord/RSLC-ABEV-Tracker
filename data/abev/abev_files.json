@@ -1,5 +1,5 @@
 {
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "house": [
     "data/abev/ak_house.json",
     "data/abev/co_house.json",
@@ -23,6 +23,7 @@
     "data/abev/ny_house.json",
     "data/abev/oh_house.json",
     "data/abev/ok_house.json",
+    "data/abev/or_house.json",
     "data/abev/pa_house.json",
     "data/abev/ri_house.json",
     "data/abev/sd_house.json",
@@ -55,6 +56,7 @@
     "data/abev/ny_senate.json",
     "data/abev/oh_senate.json",
     "data/abev/ok_senate.json",
+    "data/abev/or_senate.json",
     "data/abev/pa_senate.json",
     "data/abev/ri_senate.json",
     "data/abev/sd_senate.json",
@@ -85,6 +87,7 @@
     "data/abev/ny_cong.json",
     "data/abev/oh_cong.json",
     "data/abev/ok_cong.json",
+    "data/abev/or_cong.json",
     "data/abev/pa_cong.json",
     "data/abev/ri_cong.json",
     "data/abev/va_cong.json",
