@@ -1,4 +1,4 @@
-import { requireAuth } from "./modules/auth.js?v=20261001a";
+import { requireAuth } from "./modules/auth.js?v=20261002a";
 import {
   ABEV_HISTORY_INDEX_URL,
   ABEV_INDEX_URL,
@@ -32,7 +32,7 @@ import {
   VIEW_BUTTON_LABELS,
   VIEW_CARD_LABELS,
   VIEW_MAP_STAT,
-} from "./modules/config.js?v=20261001a";
+} from "./modules/config.js?v=20261002a";
 import {
   details,
   detailsTitle,
@@ -46,15 +46,15 @@ import {
   targetDistrictsToggle,
   updatedBadge,
   upIn2026Toggle,
-} from "./modules/dom.js?v=20261001a";
-import { state } from "./modules/state.js?v=20261001a";
-import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261001a";
+} from "./modules/dom.js?v=20261002a";
+import { state } from "./modules/state.js?v=20261002a";
+import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261002a";
 
 if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20261001a";
+const BUILD_VERSION = "20261002a";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -254,54 +254,57 @@ function dataAsOfNoteHtml() {
 // Stat helpers
 // ---------------------------------------------------------------------------
 
-const EMPTY_BUCKETS = { rep: 0, dem: 0, toss: 0 };
+// Party buckets: rep / dem / toss (the model's Swing segment) plus unm, voters
+// the model does not match at all. Unmatched voters are real ballots, so they
+// count in every turnout total, but they belong to no party bucket - not even
+// Swing - and never enter a margin. Data written before 2026-10-02 has no unm
+// key; there they still sit inside toss, and read as 0 here.
+const BUCKET_KEYS = ["rep", "dem", "toss", "unm"];
+const EMPTY_BUCKETS = { rep: 0, dem: 0, toss: 0, unm: 0 };
 
-function bucketsForStat(rec, stat) {
-  if (!rec) return null;
-  if (stat === "voted") {
-    const returned = rec.returned || EMPTY_BUCKETS;
-    const ev = rec.ev || EMPTY_BUCKETS;
-    return {
-      rep: Number(returned.rep || 0) + Number(ev.rep || 0),
-      dem: Number(returned.dem || 0) + Number(ev.dem || 0),
-      toss: Number(returned.toss || 0) + Number(ev.toss || 0),
-    };
-  }
-  const raw = rec[stat];
-  if (!raw) return null;
-  return {
-    rep: Number(raw.rep || 0),
-    dem: Number(raw.dem || 0),
-    toss: Number(raw.toss || 0),
-  };
-}
-
-// Net convention for this project: positive = GOP advantage, negative = Dem.
-function statTotals(rec, stat) {
-  const buckets = bucketsForStat(rec, stat);
-  if (!buckets) return null;
-  const total = buckets.rep + buckets.dem + buckets.toss;
-  return { ...buckets, total, net: buckets.rep - buckets.dem };
-}
-
-function sumStatTotals(records, stat) {
-  const out = { rep: 0, dem: 0, toss: 0, total: 0, net: 0 };
-  for (const rec of records) {
-    const totals = statTotals(rec, stat);
-    if (!totals) continue;
-    out.rep += totals.rep;
-    out.dem += totals.dem;
-    out.toss += totals.toss;
-    out.total += totals.total;
-  }
-  out.net = out.rep - out.dem;
+function bucketsFrom(raw) {
+  const out = {};
+  for (const key of BUCKET_KEYS) out[key] = Number(raw?.[key] || 0);
   return out;
 }
 
+function addBuckets(a, b) {
+  const out = {};
+  for (const key of BUCKET_KEYS) out[key] = Number(a?.[key] || 0) + Number(b?.[key] || 0);
+  return out;
+}
+
+function bucketsForStat(rec, stat) {
+  if (!rec) return null;
+  if (stat === "voted") return addBuckets(rec.returned || EMPTY_BUCKETS, rec.ev || EMPTY_BUCKETS);
+  const raw = rec[stat];
+  if (!raw) return null;
+  return bucketsFrom(raw);
+}
+
+// Totals for a bucket set: `total` is every ballot (unmatched included), `net`
+// is GOP minus Dem. Net convention: positive = GOP advantage, negative = Dem.
+function totalsFromBuckets(buckets) {
+  const total = buckets.rep + buckets.dem + buckets.toss + buckets.unm;
+  return { ...buckets, total, net: buckets.rep - buckets.dem };
+}
+
+function statTotals(rec, stat) {
+  const buckets = bucketsForStat(rec, stat);
+  return buckets ? totalsFromBuckets(buckets) : null;
+}
+
+function sumStatTotals(records, stat) {
+  let buckets = { ...EMPTY_BUCKETS };
+  for (const rec of records) {
+    const b = bucketsForStat(rec, stat);
+    if (b) buckets = addBuckets(buckets, b);
+  }
+  return totalsFromBuckets(buckets);
+}
+
 function netPctForRecord(rec, stat) {
-  const totals = statTotals(rec, stat);
-  if (!totals || totals.total <= 0) return null;
-  return (totals.net / totals.total) * 100;
+  return netPctFromTotals(statTotals(rec, stat));
 }
 
 // Stats shown in detail/hover breakdowns (all four raw + calculated stats).
@@ -317,7 +320,7 @@ function formatCount(value) {
   return Number(value || 0).toLocaleString("en-US");
 }
 
-// All displayed margins are percentages of the stat total: R+5.4 / D+3.2.
+// Displayed margins are percentages of the margin base (marginBase): R+5.4 / D+3.2.
 function formatNetPct(netPct) {
   if (typeof netPct !== "number") return "N/A";
   if (Math.abs(netPct) < 0.05) return "EVEN";
@@ -334,9 +337,24 @@ function netPctHtml(netPct) {
   return `<span class="${netClass(netPct)}">${escapeHtml(formatNetPct(netPct))}</span>`;
 }
 
+// What a margin is a percentage of. Since 2026-10-02 it is GOP + Dem only:
+// Swing voters are left out, and unmatched voters always are, so the margin is
+// the two-party split - the convention RSLC's own ABEV tables use. Flip
+// MARGIN_INCLUDES_SWING to put Swing back in the denominator. Totals are
+// unaffected either way; they always count every ballot.
+const MARGIN_INCLUDES_SWING = false;
+
+function marginBase(totals) {
+  return totals.rep + totals.dem + (MARGIN_INCLUDES_SWING ? totals.toss : 0);
+}
+
+// Every margin on the site goes through here: tables, cards, map fill, chrono
+// rows and the trend line.
 function netPctFromTotals(totals) {
-  if (!totals || totals.total <= 0) return null;
-  return (totals.net / totals.total) * 100;
+  if (!totals) return null;
+  const base = marginBase(totals);
+  if (base <= 0) return null;
+  return (totals.net / base) * 100;
 }
 
 // District-Explorer-style margin cell: signed percentage on a colored field.
@@ -354,7 +372,7 @@ function mapStat() {
   return VIEW_MAP_STAT[state.abevView] || "voted";
 }
 
-// Fill color from net advantage as a share of the stat total.
+// Fill color from net advantage as a share of the margin base (marginBase).
 // Red = GOP advantage, blue = Dem advantage (note: reversed sign convention
 // from District Explorer, which stores Dem-positive margins).
 // Hue saturates at a ±20% margin.
@@ -615,7 +633,7 @@ function currentDataIsoForSelectedState(stat = mapStat()) {
       for (const row of timeline?.[part] || []) {
         const key = String(row.date || "");
         if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || key > cap) continue;
-        const n = Number(row.rep || 0) + Number(row.dem || 0) + Number(row.toss || 0);
+        const n = BUCKET_KEYS.reduce((sum, key) => sum + Number(row[key] || 0), 0);
         if (n) byDate.set(key, (byDate.get(key) || 0) + n);
       }
     }
@@ -684,20 +702,17 @@ function historyTotalsAsOf(rec, stat, asOfIso) {
 // Undated rows are always skipped (see above); `toIso` null takes everything.
 function historyTotalsInRange(timeline, stat, fromIso, toIso) {
   const parts = stat === "voted" ? ["returned", "ev"] : [stat];
-  const buckets = { rep: 0, dem: 0, toss: 0 };
+  let buckets = { ...EMPTY_BUCKETS };
   for (const part of parts) {
     for (const row of timeline?.[part] || []) {
       const key = String(row.date || "");
       if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
       if (fromIso && key < fromIso) continue;
       if (toIso && key > toIso) continue;
-      buckets.rep += Number(row.rep || 0);
-      buckets.dem += Number(row.dem || 0);
-      buckets.toss += Number(row.toss || 0);
+      buckets = addBuckets(buckets, row);
     }
   }
-  const total = buckets.rep + buckets.dem + buckets.toss;
-  return { ...buckets, total, net: buckets.rep - buckets.dem };
+  return totalsFromBuckets(buckets);
 }
 
 // The date in `year` that sits the same number of days from its election day as
@@ -2965,34 +2980,25 @@ function chronoByDate(tlRec) {
     for (const row of tlRec[stat] || []) {
       const key = String(row.date || "unknown");
       if (!byDate.has(key)) byDate.set(key, {});
-      byDate.get(key)[stat] = {
-        rep: Number(row.rep || 0),
-        dem: Number(row.dem || 0),
-        toss: Number(row.toss || 0),
-      };
+      byDate.get(key)[stat] = bucketsFrom(row);
     }
   }
   return byDate;
 }
 
 function emptyChronoStats() {
-  const empty = () => ({ rep: 0, dem: 0, toss: 0 });
-  return { requested: empty(), returned: empty(), ev: empty() };
+  return { requested: { ...EMPTY_BUCKETS }, returned: { ...EMPTY_BUCKETS }, ev: { ...EMPTY_BUCKETS } };
 }
 
 function addChronoStats(target, stats) {
   for (const stat of CHRONO_STATS) {
-    const buckets = stats?.[stat];
-    if (!buckets) continue;
-    target[stat].rep += buckets.rep;
-    target[stat].dem += buckets.dem;
-    target[stat].toss += buckets.toss;
+    if (stats?.[stat]) target[stat] = addBuckets(target[stat], stats[stat]);
   }
   return target;
 }
 
 function chronoStatsHaveData(stats) {
-  return CHRONO_STATS.some((stat) => stats[stat].rep + stats[stat].dem + stats[stat].toss > 0);
+  return CHRONO_STATS.some((stat) => totalsFromBuckets(stats[stat]).total > 0);
 }
 
 // Build display rows from a timeline. Everything outside the state's ABEV
@@ -3114,17 +3120,9 @@ function chronoWeekLabel(weekStart, startIso, cutoffIso) {
 }
 
 function chronoStatTotals(stats, stat) {
-  const get = (key) => stats[key] || { rep: 0, dem: 0, toss: 0 };
-  let buckets;
-  if (stat === "voted") {
-    const returned = get("returned");
-    const ev = get("ev");
-    buckets = { rep: returned.rep + ev.rep, dem: returned.dem + ev.dem, toss: returned.toss + ev.toss };
-  } else {
-    buckets = get(stat);
-  }
-  const total = buckets.rep + buckets.dem + buckets.toss;
-  return { ...buckets, total, net: buckets.rep - buckets.dem };
+  const get = (key) => bucketsFrom(stats[key]);
+  const buckets = stat === "voted" ? addBuckets(get("returned"), get("ev")) : get(stat);
+  return totalsFromBuckets(buckets);
 }
 
 // `joinKey` scopes the past-cycle columns: a district's own history, or null for
@@ -3164,8 +3162,7 @@ function chronoTableHtml(rows, { cumulative = false, joinKey = null } = {}) {
           if (col.kind === "count") {
             return `<td class="abev-count-cell${vline}">${totals ? escapeHtml(formatCount(totals.total)) : "—"}</td>`;
           }
-          const netPct = totals && totals.total > 0 ? (totals.net / totals.total) * 100 : null;
-          return marginCellHtml(netPct, vline);
+          return marginCellHtml(netPctFromTotals(totals), vline);
         })
         .join("");
       return `
@@ -3445,7 +3442,7 @@ function trendPointsFor(byDate, { ctx, stat, start, domainEnd, cutoff, isoRe }) 
         rep: totals.rep,
         dem: totals.dem,
         toss: totals.toss,
-        netPct: totals.total > 0 ? (totals.net / totals.total) * 100 : null,
+        netPct: netPctFromTotals(totals),
       });
     }
     return points;
@@ -3466,7 +3463,7 @@ function trendPointsFor(byDate, { ctx, stat, start, domainEnd, cutoff, isoRe }) 
       rep: totals.rep,
       dem: totals.dem,
       toss: totals.toss,
-      netPct: totals.total > 0 ? (totals.net / totals.total) * 100 : null,
+      netPct: netPctFromTotals(totals),
     });
   }
 
@@ -3831,11 +3828,14 @@ function districtDetailHtml(properties, joinInfo, rec) {
 
   const voted = statTotals(rec, "voted");
   let compositionHtml = "";
-  if (voted && voted.total > 0) {
+  // Shares of the voters the model places; unmatched ballots belong to none of
+  // the three, so they are left out of the bar rather than inflating Swing.
+  const modeled = voted ? voted.rep + voted.dem + voted.toss : 0;
+  if (modeled > 0) {
     compositionHtml = stackedBreakdownHtml("Total Votes Cast by Modeled Party", [
-      { label: "GOP", value: (voted.rep / voted.total) * 100, colorClass: "color-net-r" },
-      { label: "Swing", value: (voted.toss / voted.total) * 100, colorClass: "color-net-toss" },
-      { label: "Dem", value: (voted.dem / voted.total) * 100, colorClass: "color-net-d" },
+      { label: "GOP", value: (voted.rep / modeled) * 100, colorClass: "color-net-r" },
+      { label: "Swing", value: (voted.toss / modeled) * 100, colorClass: "color-net-toss" },
+      { label: "Dem", value: (voted.dem / modeled) * 100, colorClass: "color-net-d" },
     ], { legendColumns: 3 });
   }
 
@@ -3848,6 +3848,11 @@ function districtDetailHtml(properties, joinInfo, rec) {
   }
   if (voted && ev && voted.total > 0) {
     rateLines.push(`Early vote share of total: <strong>${((ev.total / voted.total) * 100).toFixed(1)}%</strong>`);
+  }
+  // Why Total can exceed GOP + Dem + Swing in the table above.
+  const unmatched = statTotals(rec, mapStat())?.unm || 0;
+  if (unmatched > 0) {
+    rateLines.push(`${escapeHtml(STAT_LABELS[mapStat()])}: <strong>${escapeHtml(formatCount(unmatched))}</strong> from voters the model does not match, counted in Total but in no party column.`);
   }
 
   return `

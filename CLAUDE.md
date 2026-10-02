@@ -32,7 +32,9 @@ Interactive map/table tracker of Absentee (AB) and Early Vote (EV) activity for 
 
 Three tracked stats + one calculated: `requested` (RequestDate), `returned` (ReturnDate), `ev` (EarlyVoted), and `voted` = returned + ev (computed client-side, never stored). Ballot-sent is deliberately NOT tracked. Each stat is broken into three modeled-party buckets: `rep`, `dem`, `toss`.
 
-**SIGN CONVENTION — IMPORTANT:** Net = `rep − dem`. **Positive = GOP advantage** (red), negative = Dem (blue). This is *reversed* from District Explorer's DEM_MARGIN convention. Map fill uses `netColor(netPct)` where `netPct = net / total × 100`; the hue saturates at ±20.
+**SIGN CONVENTION — IMPORTANT:** Net = `rep − dem`. **Positive = GOP advantage** (red), negative = Dem (blue). This is *reversed* from District Explorer's DEM_MARGIN convention. Map fill uses `netColor(netPct)`; the hue saturates at ±20.
+
+**MARGINS ARE TWO-PARTY, AND UNMATCHED VOTERS ARE THEIR OWN BUCKET (2026-10-02).** Every margin is `net / (rep + dem) × 100`, computed in one place (`netPctFromTotals` / `marginBase`), so Swing is left out of the denominator, the same convention RSLC's own ABEV tables use. `MARGIN_INCLUDES_SWING` in app.js puts Swing back. Voters the model does not match are bucket **`unm`** (`bucket_case_sql()` in daily_update.py wraps every model's CASE), not `toss`. They count in every turnout **total** (`total = rep + dem + toss + unm`) but in no party bucket and no margin, and they are left out of Swing counts, shares and the trend's Swing line. Before this they fell into `toss`, which mattered for history: models are built on the 2026 voter file, so a past voter who has since moved or died cannot match. Michigan's ballots by 33 days out ran 11.0% unmatched in 2022, 4.7% in 2024 and 0.1% in 2026. A comparison table that drops unmatched voters from turnout (MI's showed 82,110 for 2022 against 92,527 actually cast) understates past turnout; this site keeps them. Files from before the change have no `unm` key and read it as 0.
 
 ## Architecture
 

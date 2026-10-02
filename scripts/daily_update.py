@@ -23,8 +23,10 @@ machine's repo or the website.
 Tracked stats: requested (RequestDate), returned (ReturnDate), ev (EarlyVoted).
 "Total votes" (returned + ev) is computed client-side by the site.
 
-Party buckets come from state model tables (see STATE_MODELS). Voters not
-matched to a model, or in a persuasion/swing segment, count as 'toss'.
+Party buckets come from state model tables (see STATE_MODELS): 'rep', 'dem',
+and 'toss' for the model's persuasion/swing segment. Voters the model does not
+match at all are 'unm' - real ballots that count in every turnout total but in
+no party bucket, so they never pose as swing voters (see bucket_case_sql).
 
 Date handling:
   * any event dated before EARLIER_CUTOFF (Sept 1, 2026) -> timeline bucket
@@ -80,7 +82,19 @@ ABEV_TABLE = "dbo.General_Absentees_2026"
 # state has feed rows but none of them are general-election rows.
 GENERAL_ELECTION_TYPE = "{abbr} General Election"
 STATS = ("requested", "returned", "ev")
-BUCKETS = ("rep", "dem", "toss")
+BUCKETS = ("rep", "dem", "toss", "unm")
+
+
+def bucket_case_sql(model):
+    """The model's own bucketing, with voters it does not match split out as 'unm'.
+
+    Until 2026-10-02 an unmatched voter fell through every model's CASE into
+    'toss', so the Swing bucket carried them. That misstated history badly: the
+    models are built on the 2026 voter file, so a past voter who has since moved
+    or died cannot match, and Michigan's 2022 ballots ran 11% unmatched against
+    0.1% in 2026. They are still ballots, so they stay in every total; they just
+    belong to no party bucket."""
+    return f"CASE WHEN m.{model['join_col']} IS NULL THEN 'unm' ELSE {model['bucket_sql']} END"
 # Everything dated before the 2026 ABEV window opens folds into one "Earlier"
 # row. States publish permanent-absentee list signups (PA ~938k, IL ~444k) and
 # occasional garbage dates all year, and each distinct day was becoming its own
@@ -959,7 +973,7 @@ WITH scored AS (
         a.RequestDate,
         a.ReturnDate,
         a.EarlyVoted,
-        {model['bucket_sql']} AS bucket
+        {bucket_case_sql(model)} AS bucket
     FROM {table} a
     LEFT JOIN {model['model_table']} m
         ON m.{model['join_col']} = CONVERT(varchar(36), a.RNC_RegID)

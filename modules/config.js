@@ -299,7 +299,7 @@ export const STATE_DATA_NOTES = {
   "05": [{ years: [2024], text: "11.3% of 2024 records carry no district, so district counts sum short of statewide." }],
   "06": [
     { chambers: ["senate"], text: "Senate district is blank on ~1.2% of records, missing from the senate rollup only." },
-    { years: [2022], text: "2022 model match is 82.5% against 90.4% in 2024, inflating that year's Swing bucket." },
+    { years: [2022], text: "2022 model match is 82.5% against 90.4% in 2024; unmatched voters count in totals only, in no party bucket." },
   ],
   "08": [
     { stats: ["requested"], text: "Colorado mails every voter a ballot, so requests are ballots sent. 2024's are dated almost entirely Oct 11, so past-cycle request counts before mid-October do not compare." },
@@ -327,7 +327,7 @@ export const STATE_DATA_NOTES = {
   ],
   "32": [
     { stats: ["requested"], text: "Nevada mails every voter a ballot, so requests are ballots sent, dated in bulk at each mailing (2024's mid-October, 2026's 9/29). Past-cycle request counts before mid-October do not compare." },
-    { years: [2022], text: "2022 model match is 81.3% against 93.7% in 2024, inflating that year's Swing bucket." },
+    { years: [2022], text: "2022 model match is 81.3% against 93.7% in 2024; unmatched voters count in totals only, in no party bucket." },
   ],
   "33": [
     { text: "Margins calculated using gubernatorial model." },
@@ -364,7 +364,7 @@ export const STATE_DATA_NOTES = {
   ],
   "56": [
     { years: [2022], text: "2022 dropped: 62 returns against 57,634 requests made the year unusable." },
-    { text: "Lowest model match of any state (78-82%), so the Swing bucket is inflated." },
+    { text: "Lowest model match of any state (78-82%); unmatched voters count in totals only, in no party bucket." },
   ],
 };
 

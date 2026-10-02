@@ -62,6 +62,7 @@ from daily_update import (
     ABBR_TO_FIPS,
     ABBR_TO_NAME,
     BUCKETS,
+    bucket_case_sql,
     STATS,
     connect,
     load_config,
@@ -319,7 +320,7 @@ WITH scored AS (
         a.RequestDate,
         a.ReturnDate,
         a.EarlyVoted,
-        {model['bucket_sql']} AS bucket
+        {bucket_case_sql(model)} AS bucket
     FROM {table} a
     LEFT JOIN {model['model_table']} m
         ON m.{model['join_col']} = CONVERT(varchar(36), a.{regid_col})
@@ -409,7 +410,7 @@ def run_diagnostics(conn, table, abbr, model, ycfg):
     null_sd = int(null_sd or 0)
     matched_pct = 100.0 * (total - unmatched) / total
     print(f"    rows: {total:,} | model-matched: {matched_pct:.1f}% "
-          f"(unmatched->toss: {unmatched:,})")
+          f"(unmatched->unm: {unmatched:,})")
     print(f"    NULL/0 leg district: {100.0 * null_hd / total:.1f}% ({null_hd:,}) | "
           f"NULL/0 senate district: {100.0 * null_sd / total:.1f}% ({null_sd:,})")
 
