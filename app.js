@@ -1,4 +1,4 @@
-import { requireAuth } from "./modules/auth.js?v=20261002a";
+import { requireAuth } from "./modules/auth.js?v=20261003a";
 import {
   ABEV_HISTORY_INDEX_URL,
   ABEV_INDEX_URL,
@@ -32,7 +32,7 @@ import {
   VIEW_BUTTON_LABELS,
   VIEW_CARD_LABELS,
   VIEW_MAP_STAT,
-} from "./modules/config.js?v=20261002a";
+} from "./modules/config.js?v=20261003a";
 import {
   details,
   detailsTitle,
@@ -46,15 +46,15 @@ import {
   targetDistrictsToggle,
   updatedBadge,
   upIn2026Toggle,
-} from "./modules/dom.js?v=20261002a";
-import { state } from "./modules/state.js?v=20261002a";
-import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261002a";
+} from "./modules/dom.js?v=20261003a";
+import { state } from "./modules/state.js?v=20261003a";
+import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261003a";
 
 if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20261002a";
+const BUILD_VERSION = "20261003a";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -3395,19 +3395,29 @@ function buildTrendSeries(ctx) {
     if (!byDate || !byDate.size) continue;
     // Past cycles are finished, so they run the full domain; only the current
     // one stops at its last complete day of data.
-    const yearCutoff = year === trendCurrentYear() ? cutoff : domainEnd;
-    const points = trendPointsFor(byDate, { ctx, stat, start, domainEnd, cutoff: yearCutoff, isoRe });
+    const current = year === trendCurrentYear();
+    const yearCutoff = current ? cutoff : domainEnd;
+    const points = trendPointsFor(byDate, { ctx, stat, start, domainEnd, cutoff: yearCutoff, isoRe, foldLate: current });
     if (points.length) series.push({ year, points });
   }
   if (!series.length) return null;
   return { series, start, end: domainEnd, stat };
 }
 
-function trendPointsFor(byDate, { ctx, stat, start, domainEnd, cutoff, isoRe }) {
+// `foldLate`: whether records dated after the cutoff join the baseline. Only
+// the current cycle does that - its late records are a partial extract day
+// that the tables also count, so the last cumulative point still matches
+// them. A past cycle's records after the cutoff are simply later in that
+// election than the graph reaches. With "End graph at current date" on, that
+// is most of the cycle, and folding it in started every 2022/2024 line near
+// its final total and stretched the axis to fit (fixed 2026-10-03).
+function trendPointsFor(byDate, { ctx, stat, start, domainEnd, cutoff, isoRe, foldLate = true }) {
   const baseline = emptyChronoStats();
   const inWindow = new Map();
   for (const [key, stats] of byDate) {
-    if (!isoRe.test(key) || key > cutoff || key < start) {
+    const iso = isoRe.test(key);
+    if (iso && key > cutoff && !foldLate) continue;
+    if (!iso || key > cutoff || key < start) {
       addChronoStats(baseline, stats);
       continue;
     }
