@@ -1,4 +1,4 @@
-import { requireAuth } from "./modules/auth.js?v=20261003a";
+import { requireAuth } from "./modules/auth.js?v=20261005a";
 import {
   ABEV_HISTORY_INDEX_URL,
   ABEV_INDEX_URL,
@@ -32,7 +32,7 @@ import {
   VIEW_BUTTON_LABELS,
   VIEW_CARD_LABELS,
   VIEW_MAP_STAT,
-} from "./modules/config.js?v=20261003a";
+} from "./modules/config.js?v=20261005a";
 import {
   details,
   detailsTitle,
@@ -46,15 +46,15 @@ import {
   targetDistrictsToggle,
   updatedBadge,
   upIn2026Toggle,
-} from "./modules/dom.js?v=20261003a";
-import { state } from "./modules/state.js?v=20261003a";
-import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261003a";
+} from "./modules/dom.js?v=20261005a";
+import { state } from "./modules/state.js?v=20261005a";
+import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261005a";
 
 if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20261003a";
+const BUILD_VERSION = "20261005a";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -561,8 +561,9 @@ function historyAvailableForSelectedState() {
 
 // Does a past cycle line up with today's districts in this state? Where the
 // state redrew its map in between (HISTORY_STALE_LINES) the counts are real but
-// belong to different geography, so the columns render N/A instead and the
-// trend graph doesn't offer the year at all.
+// belong to different geography, so district-level columns render N/A and a
+// district's trend graph doesn't offer the year. Statewide scopes (the state's
+// Daily/Weekly tables and trend) are exempt - see historyYearAppliesToDistrict.
 //
 // Staleness is per chamber, not just per state: a redraw can reach one chamber
 // and not the other, or reach them in different cycles (Michigan - see the
@@ -579,10 +580,13 @@ function historyYearAppliesToSelectedState(year, chamber = state.chamber) {
 // individual districts were redrawn and their past counts describe different
 // ground. Only those cells read N/A; the untouched districts keep real numbers.
 // A null joinKey is a statewide scope, which a redraw cannot invalidate - the
-// state's own borders didn't move - so it always applies.
+// state's own borders didn't move - so it always applies, whole-state redraws
+// (HISTORY_STALE_LINES) included. That check has to come first: until
+// 2026-10-05 the whole-state test ran before it, so WI/VA/NC/MT 2022 read N/A
+// even in the statewide Daily/Weekly tables, whose totals no redraw touches.
 function historyYearAppliesToDistrict(year, joinKey, chamber = state.chamber) {
-  if (!historyYearAppliesToSelectedState(year, chamber)) return false;
   if (!joinKey) return true;
+  if (!historyYearAppliesToSelectedState(year, chamber)) return false;
   const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
   if (!abbr) return true;
   const districts = (HISTORY_STALE_DISTRICTS[year] || {})[`${abbr}:${chamber}`];
@@ -2674,7 +2678,7 @@ const MARGIN_HEAD_LINES = {
 // `withHistory` is the district-table shape: past cycles first, then the current
 // one, so the columns read left-to-right as 2022 -> 2024 -> 2026. Chrono tables
 // call this without the flag and never show past cycles.
-function viewColumnDefs(view, { withHistory = false, chrono = false } = {}) {
+function viewColumnDefs(view, { withHistory = false, chrono = false, statewide = false } = {}) {
   let cols;
   if (view === "abreq") {
     cols = [
@@ -2717,8 +2721,9 @@ function viewColumnDefs(view, { withHistory = false, chrono = false } = {}) {
   const history = [];
   for (const year of historyYearsForSelectedState()) {
     // A year on retired district lines keeps its columns — so the years line up
-    // with every other state — but every cell reads N/A.
-    const na = !historyYearAppliesToSelectedState(year);
+    // with every other state — but every cell reads N/A. Not in a statewide
+    // table, though: the state's own total is the same whatever the map.
+    const na = !statewide && !historyYearAppliesToSelectedState(year);
     // Each stat gets its own leading gap, so a two-stat view reads
     // "| 2022 Requested | 2022 Req. Margin | 2022 AB Returned | 2022 Ret. Margin |"
     // with the same framing the 2026 group uses.
@@ -3131,7 +3136,7 @@ function chronoTableHtml(rows, { cumulative = false, joinKey = null } = {}) {
   if (!rows.length) {
     return '<div class="loading-indicator">No chronological ABEV data available.</div>';
   }
-  const cols = viewColumnDefs(state.abevView, { withHistory: true, chrono: true });
+  const cols = viewColumnDefs(state.abevView, { withHistory: true, chrono: true, statewide: !joinKey });
 
   const headCells = cols
     .map((col, idx) => {
