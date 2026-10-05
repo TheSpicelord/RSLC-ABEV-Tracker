@@ -1,4 +1,4 @@
-import { requireAuth } from "./modules/auth.js?v=20261005a";
+import { requireAuth } from "./modules/auth.js?v=20261005b";
 import {
   ABEV_HISTORY_INDEX_URL,
   ABEV_INDEX_URL,
@@ -32,7 +32,7 @@ import {
   VIEW_BUTTON_LABELS,
   VIEW_CARD_LABELS,
   VIEW_MAP_STAT,
-} from "./modules/config.js?v=20261005a";
+} from "./modules/config.js?v=20261005b";
 import {
   details,
   detailsTitle,
@@ -46,15 +46,15 @@ import {
   targetDistrictsToggle,
   updatedBadge,
   upIn2026Toggle,
-} from "./modules/dom.js?v=20261005a";
-import { state } from "./modules/state.js?v=20261005a";
-import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261005a";
+} from "./modules/dom.js?v=20261005b";
+import { state } from "./modules/state.js?v=20261005b";
+import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261005b";
 
 if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20261005a";
+const BUILD_VERSION = "20261005b";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -138,7 +138,9 @@ async function init() {
   setDetailsLoading("Loading ABEV data...");
   resetSidebarScroll();
 
-  await Promise.all([loadAbevData(), autoLoadStateShapes()]);
+  // The history index is loaded up front so the national table can list states
+  // that have past cycles but no 2026 data yet (historyStateAbbrs).
+  await Promise.all([loadAbevData(), autoLoadStateShapes(), ensureHistoryIndex()]);
   renderDataBadges();
   enterNationalView();
 }
@@ -243,7 +245,10 @@ function refreshedLabel() {
 // One line over the sidebar tables. The as-of date is the one On This Day
 // aligns 2022/2024 to (currentDataIsoForSelectedState), so the two agree.
 function dataAsOfNoteHtml() {
-  if (!state.timelineByFips.get(normalizeStateFips(state.selectedState?.fips))) return "";
+  if (!state.timelineByFips.get(normalizeStateFips(state.selectedState?.fips))) {
+    if (!historyAvailableForSelectedState()) return "";
+    return '<div class="data-asof-note">No 2026 ABEV data in the feed yet; past cycles shown for comparison.</div>';
+  }
   const asOf = chronoDateLabel(currentDataIsoForSelectedState());
   const refreshed = refreshedLabel();
   const text = `2026 ABEV data accurate as of ${asOf}${refreshed ? `, last refreshed ${refreshed}` : ""}`;
@@ -543,6 +548,41 @@ function historyYearsForSelectedState() {
 // "2022 / 2024 / 2025" - the years on screen, for button titles and notes.
 function historyYearsLabel() {
   return historyYearsForSelectedState().join(" / ");
+}
+
+// States the past-cycle backfill covers, read off the history index's file
+// paths ("data/abev/history/2024/ks_house.json" -> "KS"). A state can be here
+// with no 2026 data at all - Kansas, whose general-election file the vendor
+// had not loaded as of 2026-10-05 - and is still worth opening for its past
+// cycles, so the national table lists it (nationalOverviewRows).
+function historyStateAbbrs() {
+  const out = new Set();
+  for (const year of Object.values(state.historyIndex?.years || {})) {
+    for (const chamber of ["house", "senate"]) {
+      for (const path of year?.[chamber] || []) {
+        const m = String(path).match(/\/([a-z]{2})_(?:house|senate)\.json$/);
+        if (m) out.add(m[1].toUpperCase());
+      }
+    }
+  }
+  return out;
+}
+
+// The 2026 ABEV window opens on Sept 1 (daily_update's EARLIER_CUTOFF), so a
+// state with no 2026 data yet gets its empty date rows and trend axis from here.
+const ABEV_WINDOW_START = "2026-09-01";
+
+// One empty day per date from the window start to today: the date rows a
+// Daily/Weekly table needs to line past cycles up against when the state has
+// no 2026 data of its own. Rows built from it are flagged `placeholder`, so
+// they are kept although empty and their 2026 cells read "—", not 0.
+function emptyWindowByDate() {
+  const byDate = new Map();
+  const end = currentDataIsoForSelectedState(); // today when there is no 2026 data
+  for (let day = abevStartForSelectedState() || ABEV_WINDOW_START; day <= end; day = addIsoDays(day, 1)) {
+    byDate.set(day, emptyChronoStats());
+  }
+  return byDate;
 }
 
 // Does this state have any past-cycle data at all? Drives whether the
@@ -2428,7 +2468,10 @@ function nationalStatTableHtml() {
       const cells = DETAIL_STATS.map((stat) => statCellHtml(row.rec, stat)).join("");
       return `
         <tr class="target-row state-select-row" data-state-key="${escapeHtml(row.stateKey)}">
-          <td class="abev-name-cell">${escapeHtml(row.stateName)}${dataNoteIconHtml(stateDataNotesFor(row.stateFips))}</td>
+          <td class="abev-name-cell">${escapeHtml(row.stateName)}${dataNoteIconHtml([
+            ...(row.historyOnly ? [{ text: "No 2026 data in the feed yet. Past cycles (2022/2024) are available in the state view." }] : []),
+            ...stateDataNotesFor(row.stateFips),
+          ])}</td>
           ${cells}
         </tr>
       `;
@@ -2467,13 +2510,17 @@ function nationalOverviewRows() {
     seen.add(meta.key);
 
     const rec = state.nationalByFips.get(stateFips) || null;
-    if (!rec) continue;
+    // No 2026 data yet: listed anyway if it has past cycles to open, its 2026
+    // cells reading "—" and sorting last.
+    const historyOnly = !rec && historyStateAbbrs().has(normalizeStateAbbr(meta.abbr || ""));
+    if (!rec && !historyOnly) continue;
 
     rows.push({
       stateKey: meta.key,
       stateName: meta.name || meta.abbr || meta.key,
       stateFips,
       rec,
+      historyOnly,
     });
   }
 
@@ -2488,7 +2535,8 @@ function nationalOverviewRows() {
 function stateHoverHtml(meta, rec) {
   const title = `<div class="detail-title">${escapeHtml(meta.name || meta.abbr || meta.key)}</div>`;
   if (!rec) {
-    return `${title}<div class="detail-meta-muted">No ABEV data.</div>`;
+    const past = historyStateAbbrs().has(normalizeStateAbbr(meta.abbr || ""));
+    return `${title}<div class="detail-meta-muted">${past ? "No 2026 data yet. Click to view past cycles." : "No ABEV data."}</div>`;
   }
   return `${title}${hoverStatTableHtml(rec)}`;
 }
@@ -3078,12 +3126,12 @@ function buildChronoRows(byDate, mode, earlierLabel, cumulative = false) {
 
 function chronoRows() {
   const fips = normalizeStateFips(state.selectedState?.fips);
-  return buildChronoRows(
-    chronoByDate(state.timelineByFips.get(fips)),
-    state.chronoMode,
-    "Earlier",
-    state.chronoCumulative
-  );
+  const byDate = chronoByDate(state.timelineByFips.get(fips));
+  if (byDate?.size) return buildChronoRows(byDate, state.chronoMode, "Earlier", state.chronoCumulative);
+  // No 2026 data yet: empty date rows, so the past-cycle columns still show.
+  if (!historyAvailableForSelectedState()) return [];
+  return buildChronoRows(emptyWindowByDate(), state.chronoMode, "Earlier", state.chronoCumulative)
+    .map((row) => ({ ...row, placeholder: true }));
 }
 
 function chronoDateLabel(isoDate) {
@@ -3152,7 +3200,7 @@ function chronoTableHtml(rows, { cumulative = false, joinKey = null } = {}) {
       const dataCols = cols.filter((col) => col.type !== "gap" && !col.year);
       const allZero = dataCols.every((col) => chronoStatTotals(row.stats, col.key).total === 0);
       // Period rows with no activity are noise; running totals keep every row.
-      if (allZero && !cumulative && !row.special) return "";
+      if (allZero && !cumulative && !row.special && !row.placeholder) return "";
       if (allZero && row.special) return "";
       const cells = cols
         .map((col, idx) => {
@@ -3163,7 +3211,7 @@ function chronoTableHtml(rows, { cumulative = false, joinKey = null } = {}) {
           }
           const totals = col.year
             ? chronoHistoryTotals(row, col.year, col.key, { cumulative, joinKey })
-            : chronoStatTotals(row.stats, col.key);
+            : row.placeholder ? null : chronoStatTotals(row.stats, col.key);
           if (col.kind === "count") {
             return `<td class="abev-count-cell${vline}">${totals ? escapeHtml(formatCount(totals.total)) : "—"}</td>`;
           }
@@ -3383,7 +3431,8 @@ function buildTrendSeries(ctx) {
 
   const currentByDate = chronoByDate(ctx.timeline);
   const dataDates = [...(currentByDate?.keys() || [])].filter((k) => isoRe.test(k)).sort();
-  const start = abevStartForSelectedState() || dataDates[0] || null;
+  // No 2026 data yet (a state opened for its past cycles): the window start.
+  const start = abevStartForSelectedState() || dataDates[0] || ABEV_WINDOW_START;
   if (!start) return null;
 
   // X-axis domain: ABEV start -> election day, or -> today when toggled.
@@ -3817,9 +3866,11 @@ function districtDetailHtml(properties, joinInfo, rec) {
   const title = `District ${displayDistrictId(joinInfo.rawDistrict, joinInfo.districtId)}`;
 
   if (!rec) {
+    const past = districtChronoSectionHtml(null, joinInfo.key);
     return `
       <div class="detail-title detail-title-large">${escapeHtml(title)}</div>
-      <div class="detail-meta-muted">No ABEV data for this district.</div>
+      <div class="detail-meta-muted">${past ? "No 2026 ABEV data for this district yet; past cycles below." : "No ABEV data for this district."}</div>
+      ${past}
     `;
   }
 
@@ -3899,11 +3950,18 @@ function rerenderSelectedDistrictDetail() {
 }
 
 function districtChronoSectionHtml(rec, joinKey) {
-  const byDate = chronoByDate(rec?.timeline);
-  if (!byDate || !byDate.size) return "";
+  let byDate = chronoByDate(rec?.timeline);
+  let placeholder = false;
+  if (!byDate || !byDate.size) {
+    // No 2026 data for this district yet; worth a table only for its past cycles.
+    if (!historyYearsForSelectedState().some((year) => historyRecordFor(year, joinKey))) return "";
+    byDate = emptyWindowByDate();
+    placeholder = true;
+  }
   const mode = state.detailChronoMode;
   const cumulative = state.detailChronoCumulative;
-  const rows = buildChronoRows(byDate, mode, "Unk", cumulative);
+  let rows = buildChronoRows(byDate, mode, "Unk", cumulative);
+  if (placeholder) rows = rows.map((row) => ({ ...row, placeholder: true }));
   const button = (value, label) =>
     `<button type="button" class="detail-chrono-btn${mode === value ? " active-chrono" : ""}" data-detail-chrono="${value}">${label}</button>`;
   return `
