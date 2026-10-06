@@ -211,6 +211,19 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
     INCLUDE (MODEL_GENERIC_BALLOT_TAG);
 
 
+-- North Carolina Sept 2026 audiences (added 2026-10-06, replacing the national
+-- fallback). 7.8M rows, arrived with no index at all; an unindexed join against
+-- the NC feed ran past 10 minutes. INCLUDE carries exactly the columns the two
+-- projects read: the five partisan audiences and the High-interest flag.
+IF NOT EXISTS (SELECT 1 FROM sys.indexes
+               WHERE name = 'IX_dtregid_NC'
+                 AND object_id = OBJECT_ID('dbo.NC_Models_Audiences_Sept2026'))
+    CREATE NONCLUSTERED INDEX IX_dtregid_NC
+    ON dbo.NC_Models_Audiences_Sept2026 (dt_regid)
+    INCLUDE ([Strong GOP Voters], [Soft GOP Voters], [Swing Voters],
+             [Soft DEM Voters], [Strong DEM Voters], [High Interest in Election]);
+
+
 -- ---------------------------------------------------------------------------
 -- Retired indexes: tables no longer referenced by STATE_MODELS.
 --

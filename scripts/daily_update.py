@@ -212,21 +212,30 @@ STATE_MODELS = {
         "join_col": "dt_regid",
         "bucket_sql": NATIONAL_BUCKET_SQL,
     },
-    # North Carolina runs on the national fallback, like RI, because the one NC
-    # file on the server is not a partisan classification and cannot be used as
-    # one. dbo.NC_Legislative_GOP_UAF_Scores_Audiences is a *GOP targeting* file
-    # (the name is literal): its five audiences are clean and mutually exclusive,
-    # but they split 3.2M "GOP" to 1.3M "DEM" in an even state, it covers only
-    # 66.8% of the NC absentee feed against 90-99% for every other state model,
-    # and the misses are partisan - urban Dem districts match ~44-50%, rural GOP
-    # ones ~80%. Bucketing on it puts the 2024 NC absentee electorate at R+29.7.
-    # The national model matches 97.5% of the same feed, uniformly (97-99% in
-    # every senate district), and lands it at R+3.9 against an actual Trump +3.2.
-    # If a real RSLC NC exchange file ever arrives, swap it in here and index it.
+    # North Carolina's own model (2026-10-06), replacing the national fallback.
+    # Five audience flags ('1'/'0'), verified mutually exclusive and exhaustive
+    # across all 7,823,167 rows (one per dt_regid): Strong/Soft GOP -> rep,
+    # Strong/Soft DEM -> dem, Swing -> toss. Shared with District Explorer's
+    # MODELS["NC"], which also publishes a "High Interest in Election" cut; that
+    # turnout split does not apply here, since every ballot in the feed is a
+    # voter who has already turned out.
+    #
+    # Coverage matches the national model's (2024 feed: 97.2% vs 97.5%), but it
+    # reads ~8 points more Democratic on the same ballots - 2024 two-party D+3.6
+    # where national gave R+4.4, 2022 D+9.8 vs D+2.4. That is the model as
+    # specified, not a join problem.
+    #
+    # NOT the older dbo.NC_Legislative_GOP_UAF_Scores_Audiences: that is a GOP
+    # targeting file covering only 66.8% of the feed, with partisan misses
+    # (R+29.7 on the 2024 electorate). Don't swap back to it.
     "NC": {
-        "model_table": NATIONAL_MODEL_TABLE,
+        "model_table": "dbo.NC_Models_Audiences_Sept2026",
         "join_col": "dt_regid",
-        "bucket_sql": NATIONAL_BUCKET_SQL,
+        "bucket_sql": (
+            "CASE WHEN m.[Strong GOP Voters] = '1' OR m.[Soft GOP Voters] = '1' THEN 'rep' "
+            "WHEN m.[Strong DEM Voters] = '1' OR m.[Soft DEM Voters] = '1' THEN 'dem' "
+            "ELSE 'toss' END"  # Swing Voters -> toss
+        ),
     },
     # Illinois runs on the national fallback, like RI, NC and IA - there is no
     # RSLC IL exchange file on the server. The national model matches 90.1% of

@@ -78,19 +78,22 @@ Server `dtazclient1.gdtazdata.smartechcorp.net`, database `DTODD_RSLC`, SQL auth
     - **TX** `dbo.RSLC_TX_Scores_TurnoutSupportAudiences_20260601` — Strong/Soft Republican and Democrat Supporter audiences. These are **varchar `'1'`/`'0'`**; an unquoted `= 1` matches nothing.
     - **IA** `dbo.ia_scores_audiences_20260731` — `framework_lahn` (rep) / `framework_sand` (dem), int flags.
     - **OR** `dbo.or_audience_flags_20200727` — `state_leg_ballot_rep_audience` / `_dem_audience`. DE carries a governor-ballot model beside this one; a legislative tracker takes the **legislative** ballot. Note the **uppercase `DT_REGID`** join column, unique to this table.
-  - **National fallback** (`NATIONAL_MODEL_TABLE`): `dbo.[RSLC DRA June National Audiences and Scores]` — 227M rows, one per `dt_regid`. `RSLC Republican / Democratic / Swing Legislative Voters` are mutually exclusive '1'/'0' flags; swing + unmatched → toss. Used by any state with no exchange file of its own (currently RI, **NC**, **IL**, **WV**, **MD**, **DE**, **CT** and **NY**; ~95% match rate). **WV / MD / DE were wired 2026-09-05 for the backfill only** — none is in `ACTIVE_STATES` and none has 2026 feed rows yet. Coverage is in line with every other fallback state: WV 91.0% / 96.3%, MD 91.7% / 95.9%, DE 90.2% / 95.1% for 2022 / 2024. All three came back clean on the redistricting check (no district under 80% retention, medians 95-99%), so none needed `HISTORY_STALE_DISTRICTS` entries. **IA passed through it for a few hours on 2026-09-05 and is now off it again** — see the IA note below.
+  - **National fallback** (`NATIONAL_MODEL_TABLE`): `dbo.[RSLC DRA June National Audiences and Scores]` — 227M rows, one per `dt_regid`. `RSLC Republican / Democratic / Swing Legislative Voters` are mutually exclusive '1'/'0' flags; swing + unmatched → toss. Used by any state with no exchange file of its own (currently RI, **IL**, **WV**, **MD**, **DE**, **CT** and **NY**; ~95% match rate). **WV / MD / DE were wired 2026-09-05 for the backfill only** — none is in `ACTIVE_STATES` and none has 2026 feed rows yet. Coverage is in line with every other fallback state: WV 91.0% / 96.3%, MD 91.7% / 95.9%, DE 90.2% / 95.1% for 2022 / 2024. All three came back clean on the redistricting check (no district under 80% retention, medians 95-99%), so none needed `HISTORY_STALE_DISTRICTS` entries. **IA passed through it for a few hours on 2026-09-05 and is now off it again** — see the IA note below.
     - **IA runs on `vs.IA_scores_audiences_20260731_V2`, bucketed on the universe ladder, not its framework flags.** The V2 refresh landed 2026-09-05 and is a real full-file model: 2,148,056 rows, one per `dt_regid`, against roughly 2.2M registered Iowans, matching **91.3%** of the 2022 absentee feed and **96.1%** of 2024 — edging the national fallback (90.8% / 95.6%) while being purpose-built for the 2026 race. It replaced V1 (`dbo.ia_scores_audiences_20260731`), a *persuasion subset* of 354,382 rows that matched only 15% of the feed and dumped ~84% of absentee voters into `toss`; V1's failure is why IA briefly sat on the national fallback earlier the same day. **Bucket 1-2 / 8-9 like GA, never on `framework_lahn` / `framework_sand`.** V2 carries both, but the flags are asymmetric — `framework_lahn` is universe 1 alone (Lahn Base) while `framework_sand` spans 7-9 — so they silently drop universe 2 "Republican Targets" (262,135 voters, ~40k of the 2024 absentee feed) into `toss` while keeping the mirror-image Dem universe. That is **7.9 points of margin** on 2024 (R-5.8 on universes vs R-13.7 on flags). The ladder's names mirror cleanly, so the GA split is the right one. History for IA was re-pulled on V2 the same day.
-- **NC has no usable state model and is on the national fallback by design.** The only
-    NC file on the server, `dbo.NC_Legislative_GOP_UAF_Scores_Audiences`, is a *GOP
-    targeting* file, not a partisan classification. Its five audiences are clean (every
-    row is in exactly one; `dt_regid` unique; float flags, so `= 1` works), but they split
-    3.2M "GOP" to 1.3M "DEM" in an even state; it covers only **66.8%** of the NC absentee
-    feed where every other state model runs 90-99%; and the misses are *partisan* — urban
-    Dem districts match ~44-50%, rural GOP ones ~80%. Bucketing on it puts the 2024 NC
-    absentee electorate at **R+29.7**. The national model matches 97.5% of that same feed
-    uniformly (97-99% in every senate district) and lands it at **R+3.9**, against an
-    actual Trump +3.2. Don't "upgrade" NC to the state file; if a real RSLC NC exchange
-    table ever appears, swap it in and index it.
+- **NC has its own model since 2026-10-06: `dbo.NC_Models_Audiences_Sept2026`.** Five
+    '1'/'0' audience columns, verified mutually exclusive and exhaustive over all 7,823,167
+    rows (one per `dt_regid`): Strong/Soft GOP Voters → rep, Strong/Soft DEM Voters → dem,
+    Swing Voters → toss. Shared with District Explorer's `MODELS["NC"]`, which also publishes
+    a "High Interest in Election" cut; the ABEV tracker ignores that split, since every ballot
+    is already a voter who turned out. NC 2026 + 2022/2024 history were re-pulled on it the
+    same day (match 92.8% / 97.1% for 2022 / 2024, essentially the national model's). **It
+    reads ~8 points more Democratic than the national fallback did** on identical ballots:
+    2024 two-party D+3.6 (national R+4.4), 2022 D+9.8 (D+2.4), 2026-to-date D+48.9 (D+37.5).
+    That is the model as specified, not a join problem. **The table arrived with no index**;
+    `IX_dtregid_NC` is in `create_model_indexes.sql` and must be run by someone with DDL
+    rights (the history pull ran ~10 min without it). Still never use the older
+    `dbo.NC_Legislative_GOP_UAF_Scores_Audiences`: a GOP targeting file covering 66.8% of the
+    feed with partisan misses (R+29.7 on the 2024 electorate).
 - Models are hard classifications (buckets), NOT likelihood scores. Future state models follow the same pattern.
 - **Model tables are indexed on `dt_regid`** (covering index INCLUDEing the bucket columns) so the daily aggregate seeks instead of scanning — see `scripts/sql/create_model_indexes.sql`. Model tables are static (a refresh arrives as a brand-new table), so the index persists. **When you point a `STATE_MODELS` entry at a new/refreshed model table, add its index to that file and re-run it**, or that state goes back to a full scan. The AB feed tables are externally owned and deliberately left unindexed.
   - The file also has a **retired-index section at the end** that DROPs indexes on tables no longer in `STATE_MODELS`. Add a DROP there in the same edit that adds a new CREATE — a model swap otherwise leaves the old table's index behind forever. Cleaned up 2026-09-08: dropped the orphans on `ia_scores_audiences_20260731` (V1), `MI_SEN_IE_R1_Exchange_updated_20260507` and `RGA_WI_ExchangeData_20260131`, reclaiming 740.6 MB.
