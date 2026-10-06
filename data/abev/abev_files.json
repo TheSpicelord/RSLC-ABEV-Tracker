@@ -1,7 +1,8 @@
 {
-  "updated": "2026-10-05",
+  "updated": "2026-10-06",
   "house": [
     "data/abev/ak_house.json",
+    "data/abev/ca_house.json",
     "data/abev/co_house.json",
     "data/abev/ct_house.json",
     "data/abev/de_house.json",
@@ -32,6 +33,7 @@
     "data/abev/sd_house.json",
     "data/abev/va_house.json",
     "data/abev/wi_house.json",
+    "data/abev/wv_house.json",
     "data/abev/wy_house.json"
   ],
   "senate": [
@@ -68,6 +70,7 @@
     "data/abev/sd_senate.json",
     "data/abev/va_senate.json",
     "data/abev/wi_senate.json",
+    "data/abev/wv_senate.json",
     "data/abev/wy_senate.json"
   ],
   "cong": [
@@ -99,7 +102,8 @@
     "data/abev/pa_cong.json",
     "data/abev/ri_cong.json",
     "data/abev/va_cong.json",
-    "data/abev/wi_cong.json"
+    "data/abev/wi_cong.json",
+    "data/abev/wv_cong.json"
   ],
   "national": "data/abev/national.json",
   "timeline": "data/abev/timeline.json"
