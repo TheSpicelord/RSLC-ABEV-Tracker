@@ -1,0 +1,686 @@
+{
+ "source": "Census 2024 Gazetteer, county subdivisions (2024_Gaz_cousubs_national)",
+ "note": "CT town (county-subdivision) code -> planning region FIPS. Town codes did not change when the nine planning regions replaced the eight counties in 2022.",
+ "towns": {
+  "00000": {
+   "region": "09190",
+   "name": "County subdivisions not defined"
+  },
+  "01080": {
+   "region": "09110",
+   "name": "Andover town"
+  },
+  "01220": {
+   "region": "09140",
+   "name": "Ansonia town"
+  },
+  "01430": {
+   "region": "09150",
+   "name": "Ashford town"
+  },
+  "02060": {
+   "region": "09110",
+   "name": "Avon town"
+  },
+  "02760": {
+   "region": "09160",
+   "name": "Barkhamsted town"
+  },
+  "03250": {
+   "region": "09140",
+   "name": "Beacon Falls town"
+  },
+  "04300": {
+   "region": "09110",
+   "name": "Berlin town"
+  },
+  "04580": {
+   "region": "09170",
+   "name": "Bethany town"
+  },
+  "04720": {
+   "region": "09190",
+   "name": "Bethel town"
+  },
+  "04930": {
+   "region": "09140",
+   "name": "Bethlehem town"
+  },
+  "05910": {
+   "region": "09110",
+   "name": "Bloomfield town"
+  },
+  "06260": {
+   "region": "09110",
+   "name": "Bolton town"
+  },
+  "06820": {
+   "region": "09180",
+   "name": "Bozrah town"
+  },
+  "07310": {
+   "region": "09170",
+   "name": "Branford town"
+  },
+  "08070": {
+   "region": "09120",
+   "name": "Bridgeport town"
+  },
+  "08210": {
+   "region": "09190",
+   "name": "Bridgewater town"
+  },
+  "08490": {
+   "region": "09140",
+   "name": "Bristol town"
+  },
+  "08980": {
+   "region": "09190",
+   "name": "Brookfield town"
+  },
+  "09190": {
+   "region": "09150",
+   "name": "Brooklyn town"
+  },
+  "10100": {
+   "region": "09160",
+   "name": "Burlington town"
+  },
+  "10940": {
+   "region": "09160",
+   "name": "Canaan town"
+  },
+  "12130": {
+   "region": "09150",
+   "name": "Canterbury town"
+  },
+  "12270": {
+   "region": "09110",
+   "name": "Canton town"
+  },
+  "13810": {
+   "region": "09150",
+   "name": "Chaplin town"
+  },
+  "14160": {
+   "region": "09140",
+   "name": "Cheshire town"
+  },
+  "14300": {
+   "region": "09130",
+   "name": "Chester town"
+  },
+  "15350": {
+   "region": "09130",
+   "name": "Clinton town"
+  },
+  "15910": {
+   "region": "09180",
+   "name": "Colchester town"
+  },
+  "16050": {
+   "region": "09160",
+   "name": "Colebrook town"
+  },
+  "16400": {
+   "region": "09110",
+   "name": "Columbia town"
+  },
+  "17240": {
+   "region": "09160",
+   "name": "Cornwall town"
+  },
+  "17800": {
+   "region": "09110",
+   "name": "Coventry town"
+  },
+  "18080": {
+   "region": "09130",
+   "name": "Cromwell town"
+  },
+  "18500": {
+   "region": "09190",
+   "name": "Danbury town"
+  },
+  "18850": {
+   "region": "09190",
+   "name": "Darien town"
+  },
+  "19130": {
+   "region": "09130",
+   "name": "Deep River town"
+  },
+  "19550": {
+   "region": "09140",
+   "name": "Derby town"
+  },
+  "20810": {
+   "region": "09130",
+   "name": "Durham town"
+  },
+  "21860": {
+   "region": "09150",
+   "name": "Eastford town"
+  },
+  "22070": {
+   "region": "09110",
+   "name": "East Granby town"
+  },
+  "22280": {
+   "region": "09130",
+   "name": "East Haddam town"
+  },
+  "22490": {
+   "region": "09130",
+   "name": "East Hampton town"
+  },
+  "22630": {
+   "region": "09110",
+   "name": "East Hartford town"
+  },
+  "22910": {
+   "region": "09170",
+   "name": "East Haven town"
+  },
+  "23400": {
+   "region": "09180",
+   "name": "East Lyme town"
+  },
+  "23890": {
+   "region": "09120",
+   "name": "Easton town"
+  },
+  "24800": {
+   "region": "09110",
+   "name": "East Windsor town"
+  },
+  "25360": {
+   "region": "09110",
+   "name": "Ellington town"
+  },
+  "25990": {
+   "region": "09110",
+   "name": "Enfield town"
+  },
+  "26270": {
+   "region": "09130",
+   "name": "Essex town"
+  },
+  "26620": {
+   "region": "09120",
+   "name": "Fairfield town"
+  },
+  "27600": {
+   "region": "09110",
+   "name": "Farmington town"
+  },
+  "29910": {
+   "region": "09180",
+   "name": "Franklin town"
+  },
+  "31240": {
+   "region": "09110",
+   "name": "Glastonbury town"
+  },
+  "32290": {
+   "region": "09160",
+   "name": "Goshen town"
+  },
+  "32640": {
+   "region": "09110",
+   "name": "Granby town"
+  },
+  "33620": {
+   "region": "09190",
+   "name": "Greenwich town"
+  },
+  "33900": {
+   "region": "09180",
+   "name": "Griswold town"
+  },
+  "34250": {
+   "region": "09180",
+   "name": "Groton town"
+  },
+  "34950": {
+   "region": "09170",
+   "name": "Guilford town"
+  },
+  "35230": {
+   "region": "09130",
+   "name": "Haddam town"
+  },
+  "35650": {
+   "region": "09170",
+   "name": "Hamden town"
+  },
+  "36000": {
+   "region": "09150",
+   "name": "Hampton town"
+  },
+  "37070": {
+   "region": "09110",
+   "name": "Hartford town"
+  },
+  "37140": {
+   "region": "09160",
+   "name": "Hartland town"
+  },
+  "37280": {
+   "region": "09160",
+   "name": "Harwinton town"
+  },
+  "37910": {
+   "region": "09110",
+   "name": "Hebron town"
+  },
+  "40290": {
+   "region": "09160",
+   "name": "Kent town"
+  },
+  "40500": {
+   "region": "09150",
+   "name": "Killingly town"
+  },
+  "40710": {
+   "region": "09130",
+   "name": "Killingworth town"
+  },
+  "42390": {
+   "region": "09180",
+   "name": "Lebanon town"
+  },
+  "42600": {
+   "region": "09180",
+   "name": "Ledyard town"
+  },
+  "43230": {
+   "region": "09180",
+   "name": "Lisbon town"
+  },
+  "43370": {
+   "region": "09160",
+   "name": "Litchfield town"
+  },
+  "44210": {
+   "region": "09130",
+   "name": "Lyme town"
+  },
+  "44560": {
+   "region": "09170",
+   "name": "Madison town"
+  },
+  "44700": {
+   "region": "09110",
+   "name": "Manchester town"
+  },
+  "44910": {
+   "region": "09110",
+   "name": "Mansfield town"
+  },
+  "45820": {
+   "region": "09110",
+   "name": "Marlborough town"
+  },
+  "46520": {
+   "region": "09170",
+   "name": "Meriden town"
+  },
+  "46940": {
+   "region": "09140",
+   "name": "Middlebury town"
+  },
+  "47080": {
+   "region": "09130",
+   "name": "Middlefield town"
+  },
+  "47360": {
+   "region": "09130",
+   "name": "Middletown town"
+  },
+  "47535": {
+   "region": "09170",
+   "name": "Milford town"
+  },
+  "48620": {
+   "region": "09120",
+   "name": "Monroe town"
+  },
+  "48900": {
+   "region": "09180",
+   "name": "Montville town"
+  },
+  "49460": {
+   "region": "09160",
+   "name": "Morris town"
+  },
+  "49950": {
+   "region": "09140",
+   "name": "Naugatuck town"
+  },
+  "50440": {
+   "region": "09110",
+   "name": "New Britain town"
+  },
+  "50580": {
+   "region": "09190",
+   "name": "New Canaan town"
+  },
+  "50860": {
+   "region": "09190",
+   "name": "New Fairfield town"
+  },
+  "51350": {
+   "region": "09160",
+   "name": "New Hartford town"
+  },
+  "52070": {
+   "region": "09170",
+   "name": "New Haven town"
+  },
+  "52140": {
+   "region": "09110",
+   "name": "Newington town"
+  },
+  "52350": {
+   "region": "09180",
+   "name": "New London town"
+  },
+  "52630": {
+   "region": "09190",
+   "name": "New Milford town"
+  },
+  "52980": {
+   "region": "09190",
+   "name": "Newtown town"
+  },
+  "53470": {
+   "region": "09160",
+   "name": "Norfolk town"
+  },
+  "53890": {
+   "region": "09170",
+   "name": "North Branford town"
+  },
+  "54030": {
+   "region": "09160",
+   "name": "North Canaan town"
+  },
+  "54870": {
+   "region": "09170",
+   "name": "North Haven town"
+  },
+  "55500": {
+   "region": "09180",
+   "name": "North Stonington town"
+  },
+  "56060": {
+   "region": "09190",
+   "name": "Norwalk town"
+  },
+  "56270": {
+   "region": "09180",
+   "name": "Norwich town"
+  },
+  "57040": {
+   "region": "09130",
+   "name": "Old Lyme town"
+  },
+  "57320": {
+   "region": "09130",
+   "name": "Old Saybrook town"
+  },
+  "57600": {
+   "region": "09170",
+   "name": "Orange town"
+  },
+  "58300": {
+   "region": "09140",
+   "name": "Oxford town"
+  },
+  "59980": {
+   "region": "09150",
+   "name": "Plainfield town"
+  },
+  "60120": {
+   "region": "09110",
+   "name": "Plainville town"
+  },
+  "60750": {
+   "region": "09140",
+   "name": "Plymouth town"
+  },
+  "61030": {
+   "region": "09150",
+   "name": "Pomfret town"
+  },
+  "61800": {
+   "region": "09130",
+   "name": "Portland town"
+  },
+  "62150": {
+   "region": "09180",
+   "name": "Preston town"
+  },
+  "62290": {
+   "region": "09140",
+   "name": "Prospect town"
+  },
+  "62710": {
+   "region": "09150",
+   "name": "Putnam town"
+  },
+  "63480": {
+   "region": "09190",
+   "name": "Redding town"
+  },
+  "63970": {
+   "region": "09190",
+   "name": "Ridgefield town"
+  },
+  "65370": {
+   "region": "09110",
+   "name": "Rocky Hill town"
+  },
+  "65930": {
+   "region": "09160",
+   "name": "Roxbury town"
+  },
+  "66210": {
+   "region": "09180",
+   "name": "Salem town"
+  },
+  "66420": {
+   "region": "09160",
+   "name": "Salisbury town"
+  },
+  "67400": {
+   "region": "09150",
+   "name": "Scotland town"
+  },
+  "67610": {
+   "region": "09140",
+   "name": "Seymour town"
+  },
+  "67960": {
+   "region": "09160",
+   "name": "Sharon town"
+  },
+  "68170": {
+   "region": "09140",
+   "name": "Shelton town"
+  },
+  "68310": {
+   "region": "09190",
+   "name": "Sherman town"
+  },
+  "68940": {
+   "region": "09110",
+   "name": "Simsbury town"
+  },
+  "69220": {
+   "region": "09110",
+   "name": "Somers town"
+  },
+  "69640": {
+   "region": "09140",
+   "name": "Southbury town"
+  },
+  "70550": {
+   "region": "09110",
+   "name": "Southington town"
+  },
+  "71390": {
+   "region": "09110",
+   "name": "South Windsor town"
+  },
+  "71670": {
+   "region": "09180",
+   "name": "Sprague town"
+  },
+  "72090": {
+   "region": "09110",
+   "name": "Stafford town"
+  },
+  "73070": {
+   "region": "09190",
+   "name": "Stamford town"
+  },
+  "73420": {
+   "region": "09150",
+   "name": "Sterling town"
+  },
+  "73770": {
+   "region": "09180",
+   "name": "Stonington town"
+  },
+  "74190": {
+   "region": "09120",
+   "name": "Stratford town"
+  },
+  "74540": {
+   "region": "09110",
+   "name": "Suffield town"
+  },
+  "75730": {
+   "region": "09140",
+   "name": "Thomaston town"
+  },
+  "75870": {
+   "region": "09150",
+   "name": "Thompson town"
+  },
+  "76290": {
+   "region": "09110",
+   "name": "Tolland town"
+  },
+  "76570": {
+   "region": "09160",
+   "name": "Torrington town"
+  },
+  "77200": {
+   "region": "09120",
+   "name": "Trumbull town"
+  },
+  "77830": {
+   "region": "09150",
+   "name": "Union town"
+  },
+  "78250": {
+   "region": "09110",
+   "name": "Vernon town"
+  },
+  "78600": {
+   "region": "09150",
+   "name": "Voluntown town"
+  },
+  "78740": {
+   "region": "09170",
+   "name": "Wallingford town"
+  },
+  "79510": {
+   "region": "09160",
+   "name": "Warren town"
+  },
+  "79720": {
+   "region": "09160",
+   "name": "Washington town"
+  },
+  "80070": {
+   "region": "09140",
+   "name": "Waterbury town"
+  },
+  "80280": {
+   "region": "09180",
+   "name": "Waterford town"
+  },
+  "80490": {
+   "region": "09140",
+   "name": "Watertown town"
+  },
+  "81680": {
+   "region": "09130",
+   "name": "Westbrook town"
+  },
+  "82590": {
+   "region": "09110",
+   "name": "West Hartford town"
+  },
+  "82870": {
+   "region": "09170",
+   "name": "West Haven town"
+  },
+  "83430": {
+   "region": "09190",
+   "name": "Weston town"
+  },
+  "83500": {
+   "region": "09190",
+   "name": "Westport town"
+  },
+  "84900": {
+   "region": "09110",
+   "name": "Wethersfield town"
+  },
+  "85950": {
+   "region": "09110",
+   "name": "Willington town"
+  },
+  "86370": {
+   "region": "09190",
+   "name": "Wilton town"
+  },
+  "86440": {
+   "region": "09160",
+   "name": "Winchester town"
+  },
+  "86790": {
+   "region": "09180",
+   "name": "Windham town"
+  },
+  "87000": {
+   "region": "09110",
+   "name": "Windsor town"
+  },
+  "87070": {
+   "region": "09110",
+   "name": "Windsor Locks town"
+  },
+  "87560": {
+   "region": "09140",
+   "name": "Wolcott town"
+  },
+  "87700": {
+   "region": "09170",
+   "name": "Woodbridge town"
+  },
+  "87910": {
+   "region": "09140",
+   "name": "Woodbury town"
+  },
+  "88190": {
+   "region": "09150",
+   "name": "Woodstock town"
+  }
+ }
+}

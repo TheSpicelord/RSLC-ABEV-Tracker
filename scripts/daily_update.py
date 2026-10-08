@@ -83,6 +83,9 @@ ABEV_TABLE = "dbo.General_Absentees_2026"
 GENERAL_ELECTION_TYPE = "{abbr} General Election"
 STATS = ("requested", "returned", "ev")
 BUCKETS = ("rep", "dem", "toss", "unm")
+# Every geography a pull rolls up to, one <abbr>_<geo>.json file each. "cong" and
+# "county" are carried for analysis views; the map only draws house and senate.
+GEOGRAPHIES = ("house", "senate", "cong", "county")
 
 
 def bucket_case_sql(model):
@@ -951,10 +954,12 @@ def connect(cfg):
 
 
 def state_query(model):
-    """One aggregate query per state: counts by district triple, stat, bucket, event date.
+    """One aggregate query per state: counts by district triple + county, stat, bucket, event date.
 
-    Groups by house, senate AND congressional district so one pass feeds all three
-    rollups. CD is carried even where no congressional view exists yet: adding the
+    Groups by house, senate, congressional district AND county so one pass feeds
+    every rollup. County is the first five digits of Juriscode, which is a Census
+    place/subdivision code prefixed by the state+county FIPS ("0401300000" is
+    Maricopa, "2616322000" is Detroit in Wayne County, 26163) - see county_id(). CD is carried even where no congressional view exists yet: adding the
     column later would mean re-pulling every state, and Florida alone is 15.4M
     historical rows.
 
@@ -979,6 +984,9 @@ WITH scored AS (
         {hd_sql} AS hd,
         {sd_sql} AS sd,
         a.CongressionalDistrict AS cd,
+        -- Connecticut keeps the whole town code: its counties were replaced by
+        -- planning regions, which only the town can be mapped to (county_id).
+        CASE WHEN a.State = 'CT' THEN a.Juriscode ELSE LEFT(a.Juriscode, 5) END AS cty,
         a.RequestDate,
         a.ReturnDate,
         a.EarlyVoted,
@@ -990,15 +998,15 @@ WITH scored AS (
     WHERE a.State = ? AND a.ElectionType = ? {extra_where}
 ),
 events AS (
-    SELECT hd, sd, cd, bucket, 'requested' AS stat, RequestDate AS event_date FROM scored WHERE RequestDate IS NOT NULL
+    SELECT hd, sd, cd, cty, bucket, 'requested' AS stat, RequestDate AS event_date FROM scored WHERE RequestDate IS NOT NULL
     UNION ALL
-    SELECT hd, sd, cd, bucket, 'returned', ReturnDate FROM scored WHERE ReturnDate IS NOT NULL
+    SELECT hd, sd, cd, cty, bucket, 'returned', ReturnDate FROM scored WHERE ReturnDate IS NOT NULL
     UNION ALL
-    SELECT hd, sd, cd, bucket, 'ev', EarlyVoted FROM scored WHERE EarlyVoted IS NOT NULL
+    SELECT hd, sd, cd, cty, bucket, 'ev', EarlyVoted FROM scored WHERE EarlyVoted IS NOT NULL
 )
-SELECT hd, sd, cd, bucket, stat, event_date, COUNT(*) AS n
+SELECT hd, sd, cd, cty, bucket, stat, event_date, COUNT(*) AS n
 FROM events
-GROUP BY hd, sd, cd, bucket, stat, event_date
+GROUP BY hd, sd, cd, cty, bucket, stat, event_date
 """
 
 
@@ -1039,6 +1047,42 @@ def normalize_district_id(value):
     return raw
 
 
+# Connecticut town code -> planning region. Census replaced CT's eight counties
+# with nine planning regions in 2022 and 2024 results are reported by region,
+# but the feed's Juriscode still carries the old county prefix. Town codes did
+# not change, so the town maps straight to its region (99.0% of 2026 CT rows;
+# the rest have no Juriscode at all). Written by build_county_pres.py from
+# the Census 2024 county-subdivision gazetteer.
+CT_TOWN_REGIONS = {
+    town: rec["region"]
+    for town, rec in json.loads((PROJECT_ROOT / "scripts" / "ct_town_regions.json")
+                                .read_text(encoding="utf-8"))["towns"].items()
+}
+
+
+# Feed jurisdictions that are election authorities rather than counties, folded
+# into the county whose published results already include them. Kansas City runs
+# its own election board (Juriscode 2952000000), covering the city's Jackson
+# County portion; Jackson's 2024 total (317,702) includes those votes.
+COUNTY_REMAP = {"29520": "29095"}
+
+
+def county_id(value, state_fips):
+    """Juriscode prefix -> 5-digit county FIPS, or "" when it is not one.
+
+    The prefix must be digits AND start with the state's own FIPS: a blank or
+    malformed code (NH leaves ~7% of its rows blank) is unassigned, never a
+    phantom county. The ~1-2% unassigned elsewhere still count statewide.
+    Connecticut arrives as the full 10-digit town code and is mapped to its
+    planning region (CT_TOWN_REGIONS)."""
+    raw = str(value or "").strip()
+    if state_fips == "09":
+        return CT_TOWN_REGIONS.get(raw[5:], "") if len(raw) == 10 and raw[:2] == "09" else ""
+    if not (len(raw) == 5 and raw.isdigit() and raw[:2] == state_fips):
+        return ""
+    return COUNTY_REMAP.get(raw, raw)
+
+
 def timeline_key(stat, event_date, today, election_day):
     """Chronological bucket for an event date (see module docstring)."""
     if not isinstance(event_date, date):
@@ -1073,20 +1117,17 @@ def pull_state(conn, abbr, today):
 
     election_day = model.get("election_day", DEFAULT_ELECTION_DAY)
     derive_senate = model.get("derive_senate")
-    house = defaultdict(empty_stat_buckets)
-    senate = defaultdict(empty_stat_buckets)
-    cong = defaultdict(empty_stat_buckets)
+    state_fips = ABBR_TO_FIPS[abbr]
     statewide = empty_stat_buckets()
     timeline = {s: defaultdict(lambda: {b: 0 for b in BUCKETS}) for s in STATS}
 
     def district_timeline_factory():
         return {s: defaultdict(lambda: {b: 0 for b in BUCKETS}) for s in STATS}
 
-    house_tl = defaultdict(district_timeline_factory)
-    senate_tl = defaultdict(district_timeline_factory)
-    cong_tl = defaultdict(district_timeline_factory)
+    totals = {g: defaultdict(empty_stat_buckets) for g in GEOGRAPHIES}
+    tls = {g: defaultdict(district_timeline_factory) for g in GEOGRAPHIES}
 
-    for hd, sd, cd, bucket, stat, event_date, n in rows:
+    for hd, sd, cd, cty, bucket, stat, event_date, n in rows:
         bucket = str(bucket or "").strip()
         stat = str(stat or "").strip()
         if bucket not in BUCKETS or stat not in STATS:
@@ -1098,15 +1139,12 @@ def pull_state(conn, abbr, today):
         if not sd_id and derive_senate and hd_id:
             sd_id = derive_senate(hd_id)
         date_key = timeline_key(stat, event_date, today, election_day)
-        if hd_id:
-            house[hd_id][stat][bucket] += n
-            house_tl[hd_id][stat][date_key][bucket] += n
-        if sd_id:
-            senate[sd_id][stat][bucket] += n
-            senate_tl[sd_id][stat][date_key][bucket] += n
-        if cd_id:
-            cong[cd_id][stat][bucket] += n
-            cong_tl[cd_id][stat][date_key][bucket] += n
+        ids = {"house": hd_id, "senate": sd_id, "cong": cd_id,
+               "county": county_id(cty, state_fips)}
+        for geo, gid in ids.items():
+            if gid:
+                totals[geo][gid][stat][bucket] += n
+                tls[geo][gid][stat][date_key][bucket] += n
         statewide[stat][bucket] += n
         timeline[stat][date_key][bucket] += n
 
@@ -1119,13 +1157,21 @@ def pull_state(conn, abbr, today):
     # which already contains the floterials, so re-deriving there would be
     # redundant work over data that is already correct.
     if abbr == "NH":
-        made_d, made_t = floterial_counts(house, house_tl, STATS, BUCKETS)
-        house.update(made_d)
-        house_tl.update(made_t)
+        made_d, made_t = floterial_counts(totals["house"], tls["house"], STATS, BUCKETS)
+        totals["house"].update(made_d)
+        tls["house"].update(made_t)
         if made_d:
             print(f"[{abbr}] +{len(made_d)} floterial districts aggregated from their base districts")
 
-    return house, senate, cong, statewide, timeline, house_tl, senate_tl, cong_tl
+    return state_result({g: (totals[g], tls[g]) for g in GEOGRAPHIES}, statewide, timeline)
+
+
+def state_result(geos, statewide, timeline):
+    """One state's pull: {geography: (totals by id, timelines by id)} plus the
+    statewide totals and timeline. A dict rather than a positional tuple, so a
+    new geography is one more GEOGRAPHIES entry instead of an 8-way unpacking
+    that every caller has to keep in step (the dry-run path once crashed on it)."""
+    return {"geos": geos, "statewide": statewide, "timeline": timeline}
 
 
 def timeline_rows(timeline_stat):
@@ -1155,7 +1201,7 @@ def load_existing_states(path, key):
 
 def build_outputs(results, updated, refreshed_at, prune=False):
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_index = {"house": [], "senate": [], "cong": []}
+    out_index = {g: [] for g in GEOGRAPHIES}
     # Seed national/timeline from disk so a PARTIAL run (--states) replaces only
     # its own states instead of truncating the file to them. Without this,
     # `--states AK,IL,MN,RI` rewrote national.json with four states and silently
@@ -1174,15 +1220,16 @@ def build_outputs(results, updated, refreshed_at, prune=False):
             print(f"[{abbr}] no longer in the feed - removed from the site.")
             states_by_abbr.pop(abbr, None)
             timeline_out.pop(ABBR_TO_FIPS.get(abbr, ""), None)
-            for chamber in ("house", "senate", "cong"):
+            for chamber in GEOGRAPHIES:
                 (OUT_DIR / f"{abbr.lower()}_{chamber}.json").unlink(missing_ok=True)
 
     for abbr in sorted(results):
         fips = ABBR_TO_FIPS[abbr]
-        house, senate, cong, statewide, timeline, house_tl, senate_tl, cong_tl = results[abbr]
+        res = results[abbr]
+        statewide, timeline = res["statewide"], res["timeline"]
 
-        for chamber, dmap, tlmap in (("house", house, house_tl), ("senate", senate, senate_tl),
-                                     ("cong", cong, cong_tl)):
+        for chamber in GEOGRAPHIES:
+            dmap, tlmap = res["geos"].get(chamber, ({}, {}))
             if not dmap:
                 continue
             out = {
@@ -1233,7 +1280,7 @@ def build_outputs(results, updated, refreshed_at, prune=False):
 
     # Same reasoning for the index: list what is actually on disk, not just what
     # this run wrote, so a partial run cannot un-publish another state's files.
-    for chamber in ("house", "senate", "cong"):
+    for chamber in GEOGRAPHIES:
         out_index[chamber] = sorted(
             f"data/abev/{p.name}" for p in OUT_DIR.glob(f"*_{chamber}.json")
         )
@@ -1264,7 +1311,7 @@ def build_outputs(results, updated, refreshed_at, prune=False):
     )
 
     print(f"Wrote {len(out_index['house'])} house + {len(out_index['senate'])} senate "
-          f"+ {len(out_index['cong'])} cong files, "
+          f"+ {len(out_index['cong'])} cong + {len(out_index['county'])} county files, "
           f"{len(states_out)} states in national.json + timeline.json.")
 
 
@@ -1375,15 +1422,13 @@ def load_prior_result(abbr):
             for row in tl_state.get(stat, []):
                 rebuilt[row.get("date")] = {b: int(row.get(b, 0)) for b in BUCKETS}
             timeline[stat] = rebuilt
-        house, house_tl = _load_chamber_maps(abbr, "house")
-        senate, senate_tl = _load_chamber_maps(abbr, "senate")
-        # cong may legitimately be missing: a state whose files predate the
-        # congressional rollup has no *_cong.json, and an empty map simply means
-        # it publishes none until its next real pull.
-        cong, cong_tl = _load_chamber_maps(abbr, "cong")
-        if not house and not senate:
+        # cong/county may legitimately be missing: a state whose files predate
+        # that rollup has none, and an empty map simply means it publishes none
+        # until its next real pull.
+        geos = {g: _load_chamber_maps(abbr, g) for g in GEOGRAPHIES}
+        if not geos["house"][0] and not geos["senate"][0]:
             return None
-        return house, senate, cong, statewide, timeline, house_tl, senate_tl, cong_tl
+        return state_result(geos, statewide, timeline)
     except Exception:
         return None
 
@@ -1506,12 +1551,10 @@ def main():
 
     if args.dry_run:
         for abbr in states:
-            # NB the third element is `cong` (added with congressional-district
-            # capture in 67d796f); unpacking it as `statewide` made --dry-run
-            # crash summing a dict of dicts.
-            house, senate, cong, statewide, *_rest = results[abbr]
-            print(f"[{abbr}] house districts: {len(house)}, senate districts: {len(senate)}, "
-                  f"statewide requested: {sum(statewide['requested'].values()):,}")
+            res = results[abbr]
+            counts = ", ".join(f"{g} {len(res['geos'][g][0])}" for g in GEOGRAPHIES)
+            print(f"[{abbr}] {counts}, "
+                  f"statewide requested: {sum(res['statewide']['requested'].values()):,}")
         print("Dry run complete — no files written.")
         return
 
