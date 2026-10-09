@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-06",
+  "updated": "2026-10-09",
   "years": {
     "2022": {
       "house": [
@@ -131,6 +131,16 @@
         "data/abev/history/2022/wa_cong.json",
         "data/abev/history/2022/wi_cong.json",
         "data/abev/history/2022/wv_cong.json"
+      ],
+      "county": [
+        "data/abev/history/2022/ia_county.json",
+        "data/abev/history/2022/mi_county.json",
+        "data/abev/history/2022/mn_county.json",
+        "data/abev/history/2022/nc_county.json",
+        "data/abev/history/2022/oh_county.json",
+        "data/abev/history/2022/pa_county.json",
+        "data/abev/history/2022/tx_county.json",
+        "data/abev/history/2022/wi_county.json"
       ],
       "national": "data/abev/history/2022/national.json",
       "timeline": "data/abev/history/2022/timeline.json"
@@ -270,6 +280,16 @@
         "data/abev/history/2024/wa_cong.json",
         "data/abev/history/2024/wi_cong.json",
         "data/abev/history/2024/wv_cong.json"
+      ],
+      "county": [
+        "data/abev/history/2024/ia_county.json",
+        "data/abev/history/2024/mi_county.json",
+        "data/abev/history/2024/mn_county.json",
+        "data/abev/history/2024/nc_county.json",
+        "data/abev/history/2024/oh_county.json",
+        "data/abev/history/2024/pa_county.json",
+        "data/abev/history/2024/tx_county.json",
+        "data/abev/history/2024/wi_county.json"
       ],
       "national": "data/abev/history/2024/national.json",
       "timeline": "data/abev/history/2024/timeline.json"
