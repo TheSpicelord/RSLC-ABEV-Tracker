@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-08",
+  "updated": "2026-10-09",
   "house": [
     "data/abev/ak_house.json",
     "data/abev/az_house.json",
@@ -152,5 +152,6 @@
     "data/abev/wy_county.json"
   ],
   "national": "data/abev/national.json",
+  "county_totals": "data/abev/county_totals.json",
   "timeline": "data/abev/timeline.json"
 }
