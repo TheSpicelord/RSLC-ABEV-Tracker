@@ -1,5 +1,6 @@
 export const houseChamberBtn = document.getElementById("houseChamberBtn");
 export const senateChamberBtn = document.getElementById("senateChamberBtn");
+export const countyChamberBtn = document.getElementById("countyChamberBtn");
 export const statViewButtons = document.getElementById("statViewButtons");
 export const upIn2026Toggle = document.getElementById("upIn2026Toggle");
 export const targetDistrictsToggle = document.getElementById("targetDistrictsToggle");

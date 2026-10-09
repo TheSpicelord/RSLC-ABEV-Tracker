@@ -14,6 +14,8 @@ export const AUTO_SHAPE_URLS = {
   states: "data/shapes/states.zip",
   house: "data/shapes/house.zip",
   senate: "data/shapes/senate.zip",
+  // Census 2024 cartographic counties (cb_2024_us_county_500k), metadata dropped.
+  county: "data/shapes/county.zip",
   nh_house_floterial: "data/shapes/nh_house_floterial.zip",
 };
 

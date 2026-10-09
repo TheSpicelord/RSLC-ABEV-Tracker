@@ -29,10 +29,12 @@ export const state = {
   geojsonByChamber: {
     house: null,
     senate: null,
+    county: null,
   },
   districtFeaturesByChamberState: {
     house: new Map(),
     senate: new Map(),
+    county: new Map(),
   },
   nhFloterialGeojson: null,
 
@@ -40,7 +42,11 @@ export const state = {
   dataByChamber: {
     house: new Map(),
     senate: new Map(),
+    // Filled per state on demand (ensureCountyChamberData).
+    county: new Map(),
   },
+  countyFileIndex: [],
+  countyChamberLoaded: new Set(),
   nationalByFips: new Map(),
   timelineByFips: new Map(),
   chamberNamesByState: new Map(),

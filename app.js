@@ -1,4 +1,4 @@
-import { requireAuth } from "./modules/auth.js?v=20261009a";
+import { requireAuth } from "./modules/auth.js?v=20261009b";
 import {
   ABEV_HISTORY_INDEX_URL,
   ABEV_INDEX_URL,
@@ -32,12 +32,13 @@ import {
   VIEW_BUTTON_LABELS,
   VIEW_CARD_LABELS,
   VIEW_MAP_STAT,
-} from "./modules/config.js?v=20261009a";
+} from "./modules/config.js?v=20261009b";
 import {
   details,
   detailsTitle,
   exitStateBtn,
   houseChamberBtn,
+  countyChamberBtn,
   sampleBadge,
   senateChamberBtn,
   stateSelect,
@@ -46,15 +47,15 @@ import {
   targetDistrictsToggle,
   updatedBadge,
   upIn2026Toggle,
-} from "./modules/dom.js?v=20261009a";
-import { state } from "./modules/state.js?v=20261009a";
-import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261009a";
+} from "./modules/dom.js?v=20261009b";
+import { state } from "./modules/state.js?v=20261009b";
+import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261009b";
 
 if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20261009a";
+const BUILD_VERSION = "20261009b";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -162,6 +163,7 @@ async function loadAbevData() {
     fetchJson(CHAMBER_NAMES_URL),
   ]);
 
+  state.countyFileIndex = Array.isArray(index?.county) ? index.county : [];
   state.dataByChamber.house = buildDataMap(houseFiles);
   state.dataByChamber.senate = buildDataMap(senateFiles);
 
@@ -626,6 +628,7 @@ function historyYearAppliesToSelectedState(year, chamber = state.chamber) {
 // even in the statewide Daily/Weekly tables, whose totals no redraw touches.
 function historyYearAppliesToDistrict(year, joinKey, chamber = state.chamber) {
   if (!joinKey) return true;
+  if (isCountyChamber(chamber)) return false;
   if (!historyYearAppliesToSelectedState(year, chamber)) return false;
   const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
   if (!abbr) return true;
@@ -1058,6 +1061,12 @@ function toggleTargetFilterControl(section, tier = null) {
 // --- Filter application ------------------------------------------------------
 
 function refreshFilteredDistrictJoinKeySet() {
+  // Target and up-in-2026 filters are about legislative seats; a county map
+  // ignores them rather than greying out every county.
+  if (isCountyChamber()) {
+    state.filteredDistrictJoinKeySet = null;
+    return;
+  }
   const map = deChamberMap();
 
   const targetSet = new Set();
@@ -1097,7 +1106,7 @@ function districtPassesActiveFilters(joinKey) {
 // Sidebar district table: only "Up in 2026" removes rows. Target-district
 // selection is a map-only filter — the table keeps the full district list.
 function districtPassesTableFilters(joinKey) {
-  if (!state.upIn2026Mode) return true;
+  if (!state.upIn2026Mode || isCountyChamber()) return true;
   return state.upIn2026JoinKeySet.has(joinKey);
 }
 
@@ -1127,7 +1136,7 @@ function setUpIn2026Mode(enabled) {
 }
 
 function syncFilterToggleUi() {
-  const inState = state.mode === "state";
+  const inState = state.mode === "state" && !isCountyChamber();
   if (upIn2026Toggle) {
     upIn2026Toggle.checked = !!state.upIn2026Mode;
     upIn2026Toggle.disabled = !inState;
@@ -1279,6 +1288,170 @@ function targetDistrictsSectionHtml() {
 }
 
 // ---------------------------------------------------------------------------
+// County map ("county" chamber)
+//
+// Counties ride the same machinery as house and senate districts: state.chamber
+// is "county", the shapes are Census's 2024 cartographic county file, and the
+// join key is "<state fips>|<county fips>" - the 3-digit COUNTYFP on the shape
+// side, the last three digits of daily_update's 5-digit county id on the data
+// side. What does not carry over is everything legislative: no incumbents,
+// targets, past legislative margins, district-number labels or past-cycle ABEV
+// (history is not rolled up by county), so each of those is switched off for
+// this chamber rather than left to render blanks. In their place a county gets
+// its 2024 presidential margin and its pace against the state (see the Counties
+// comparison section above).
+// ---------------------------------------------------------------------------
+
+const DISTRICT_FIELD = { house: "SLDLST", senate: "SLDUST", county: "COUNTYFP" };
+
+function isCountyChamber(chamber = state.chamber) {
+  return chamber === "county";
+}
+
+// Per-state county files are only fetched when a state is opened on the county
+// map; the index lists which exist.
+async function ensureCountyChamberData(abbr) {
+  const stateAbbr = normalizeStateAbbr(abbr);
+  if (!stateAbbr || state.countyChamberLoaded.has(stateAbbr)) return;
+  state.countyChamberLoaded.add(stateAbbr);
+  const wanted = `${stateAbbr.toLowerCase()}_county.json`;
+  const path = (state.countyFileIndex || []).find((p) => String(p).endsWith(wanted));
+  if (!path) return;
+  const file = await fetchJson(path);
+  const fips = normalizeStateFips(file?.state_fips);
+  for (const d of file?.districts || []) {
+    const id = String(d.district_id || "");
+    if (!fips || id.length !== 5) continue;
+    state.dataByChamber.county.set(makeJoinKey(fips, id.slice(2)), {
+      ...d,
+      state_fips: fips,
+      state_abbr: stateAbbr,
+    });
+  }
+}
+
+// What a chamber needs beyond its shapes when a state opens on it.
+function ensureChamberSupportData(abbr, chamber) {
+  if (isCountyChamber(chamber)) {
+    // Statewide past-cycle timelines still feed the Daily/Weekly tables, which
+    // are the same in every chamber.
+    return Promise.all([ensureCountyChamberData(abbr), ensureCountyData(), ensureHistoryTimelines()]);
+  }
+  return Promise.all([ensureDeChamberData(abbr, chamber), ensureHistoryData(abbr, chamber)]);
+}
+
+function countyFipsFromJoinKey(joinKey) {
+  const [stateFips, countyFp] = String(joinKey || "").split("|");
+  return stateFips && countyFp ? `${stateFips}${countyFp}` : "";
+}
+
+// One county's 2024 margin and pace, for the table, the detail panel and the
+// hover. Pace needs the state rate, which countyComparison computes once per
+// render; callers pass its result in.
+function countyPresFor(joinKey) {
+  return state.countyPres.get(countyFipsFromJoinKey(joinKey)) || null;
+}
+
+function countyPaceFor(joinKey, cmp) {
+  const fips = countyFipsFromJoinKey(joinKey);
+  return cmp?.rows.find((r) => r.fips === fips) || null;
+}
+
+function countyFeatureName(properties = {}) {
+  return String(readProperty(properties, "NAMELSAD") || readProperty(properties, "NAME") || "County").trim();
+}
+
+// The county chamber's sidebar table: every county on the map, with its 2024
+// margin, the active view's 2026 columns and its pace against the state.
+function countyChamberTableHtml() {
+  const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
+  const cmp = state.countyDataLoaded ? countyComparison(abbr) : null;
+  const paceByFips = new Map((cmp?.rows || []).map((r) => [r.fips, r]));
+  const dataMap = state.dataByChamber.county;
+  const cols = viewColumnDefs(state.abevView);
+
+  let rows = (state.currentDistrictFeatures || []).map((feature) => {
+    const joinInfo = extractJoinIds(feature.properties);
+    const pres = countyPresFor(joinInfo.key);
+    return {
+      joinKey: joinInfo.key,
+      label: countyFeatureName(feature.properties).replace(/ (County|Parish|Borough|Census Area|Planning Region|Municipality|city and borough)$/i, ""),
+      rec: dataMap.get(joinInfo.key) || null,
+      margin: pres ? Number(pres.margin) : null,
+      pace: paceByFips.get(countyFipsFromJoinKey(joinInfo.key))?.pace ?? null,
+    };
+  });
+  rows.sort((a, b) => a.label.localeCompare(b.label));
+  rows = applySort(rows, state.districtSort, (row, key) => {
+    if (key === "district") return row.label;
+    if (key === "pres") return typeof row.margin === "number" ? row.margin : Number.NEGATIVE_INFINITY;
+    if (key === "pace") return typeof row.pace === "number" ? row.pace : Number.NEGATIVE_INFINITY;
+    if (!row.rec) return Number.NEGATIVE_INFINITY;
+    const isMargin = key.endsWith("_margin");
+    const totals = statTotals(row.rec, isMargin ? key.slice(0, -"_margin".length) : key);
+    if (!totals) return Number.NEGATIVE_INFINITY;
+    if (!isMargin) return totals.total;
+    const netPct = netPctFromTotals(totals);
+    return typeof netPct === "number" ? netPct : Number.NEGATIVE_INFINITY;
+  });
+  if (!rows.length) return '<div class="loading-indicator">No counties for this state.</div>';
+
+  const sortHead = (key, label, extra = "") =>
+    `<th class="abev-sortable${extra}" data-sort-scope="district" data-sort-key="${key}">${label}${sortIndicator(state.districtSort, key)}</th>`;
+  const body = rows
+    .map((row) => `
+      <tr class="target-row district-select-row" data-join-key="${escapeHtml(row.joinKey)}">
+        <td class="abev-name-cell abev-vline-left">${escapeHtml(row.label)}</td>
+        ${typeof row.margin === "number" ? marginCellHtml(row.margin, " abev-vline-right") : '<td class="margin-cell margin-cell-na abev-vline-right">—</td>'}
+        ${viewColumnBodyCellsHtml(cols, row.rec, row.joinKey)}
+        <td class="abev-gap-cell"></td>
+        ${paceCellHtml(row.pace)}
+      </tr>
+    `)
+    .join("");
+  return `
+    <table class="abev-table">
+      <thead>
+        <tr>
+          ${sortHead("district", "County", " abev-name-head abev-vline-left")}
+          ${sortHead("pres", "'24<br>Pres", " abev-vline-right")}
+          ${viewColumnHeadCellsHtml(cols)}
+          <th class="abev-gap-cell"></th>
+          ${sortHead("pace", "vs.<br>state")}
+        </tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table>
+    <div class="county-note">'24 Pres: Trump minus Harris, share of all 2024 votes. vs. state: the county's ${escapeHtml(COUNTY_STAT_NOUN[mapStat()] || "ballots")} as a share of its 2024 vote, against the state's.</div>
+  `;
+}
+
+function countyChamberOverviewHtml() {
+  return `
+    ${statewideCardsHtml()}
+    ${stateChronoButtonsHtml()}
+    <div class="detail-break"></div>
+    ${dataAsOfNoteHtml()}
+    <div class="detail-section-title centered-section-title">Counties</div>
+    ${countyChamberTableHtml()}
+  `;
+}
+
+// "2024: Trump +5.5 · 12% of the 2024 vote returned so far, +8% vs. state"
+function countyPresLineHtml(joinKey) {
+  const pres = countyPresFor(joinKey);
+  if (!pres) return "";
+  const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
+  const row = countyPaceFor(joinKey, countyComparison(abbr));
+  const margin = Number(pres.margin);
+  const marginHtml = `<span class="${netClass(margin)}">${escapeHtml(marginLabel(margin))}</span>`;
+  const pace = row
+    ? ` · ${escapeHtml(COUNTY_STAT_NOUN[mapStat()] || "ballots")}: <strong>${escapeHtml(formatRatePct(row.rate))}</strong> of the 2024 vote, <strong>${escapeHtml(formatPace(row.pace))}</strong> vs. state`
+    : "";
+  return `2024 President: <strong>${marginHtml}</strong> (${escapeHtml(formatCount(pres.total))} votes)${pace}`;
+}
+
+// ---------------------------------------------------------------------------
 // Events
 // ---------------------------------------------------------------------------
 
@@ -1289,6 +1462,10 @@ function wireEvents() {
 
   senateChamberBtn.addEventListener("click", async () => {
     await setChamber("senate");
+  });
+
+  countyChamberBtn?.addEventListener("click", async () => {
+    await setChamber("county");
   });
 
   if (upIn2026Toggle) {
@@ -1724,14 +1901,15 @@ async function selectStateByMeta(meta, feature, options = {}) {
 
   await Promise.all([
     ensureDistrictShapesLoaded(),
-    ensureDeChamberData(meta.abbr, state.chamber),
-    ensureHistoryData(meta.abbr, state.chamber),
+    ensureChamberSupportData(meta.abbr, state.chamber),
   ]);
   refreshFilteredDistrictJoinKeySet();
   renderDistrictLayerForSelectedState();
   refreshStateBoundaryStyles();
   renderModeUi();
-  setStatus(`Viewing ${meta.name || meta.abbr || meta.key} ${chamberLabel(state.chamber)} districts.`);
+  setStatus(isCountyChamber()
+    ? `Viewing ${meta.name || meta.abbr || meta.key} counties.`
+    : `Viewing ${meta.name || meta.abbr || meta.key} ${chamberLabel(state.chamber)} districts.`);
 }
 
 function focusOnState(meta, bounds) {
@@ -1788,6 +1966,10 @@ function renderModeUi() {
   const inState = state.mode === "state";
   houseChamberBtn.disabled = !inState;
   senateChamberBtn.disabled = !inState;
+  if (countyChamberBtn) {
+    countyChamberBtn.disabled = !inState;
+    countyChamberBtn.classList.toggle("active-chamber", inState && state.chamber === "county");
+  }
   exitStateBtn.hidden = !inState;
   houseChamberBtn.classList.toggle("active-chamber", inState && state.chamber === "house");
   senateChamberBtn.classList.toggle("active-chamber", inState && state.chamber === "senate");
@@ -1796,7 +1978,7 @@ function renderModeUi() {
 }
 
 async function setChamber(chamber) {
-  if (chamber !== "house" && chamber !== "senate") return;
+  if (!DISTRICT_FIELD[chamber]) return;
   const exitingChrono = !!state.chronoMode;
   if (state.chamber === chamber && !exitingChrono) return;
   state.chronoMode = null;
@@ -1806,8 +1988,7 @@ async function setChamber(chamber) {
   if (state.mode === "state") {
     await Promise.all([
       ensureDistrictShapesLoaded(),
-      ensureDeChamberData(state.selectedState?.abbr, chamber),
-      ensureHistoryData(state.selectedState?.abbr, chamber),
+      ensureChamberSupportData(state.selectedState?.abbr, chamber),
     ]);
     refreshFilteredDistrictJoinKeySet();
     renderDistrictLayerForSelectedState();
@@ -1826,6 +2007,7 @@ function setChronoMode(mode) {
 }
 
 function chamberLabel(chamber) {
+  if (isCountyChamber(chamber)) return "County";
   return chamber === "house" ? "Lower Chamber" : "Upper Chamber";
 }
 
@@ -1834,6 +2016,7 @@ function chamberLabel(chamber) {
 function chamberDisplayName(meta = state.selectedState, chamber = state.chamber) {
   const abbr = normalizeStateAbbr(meta?.abbr || "");
   const stateName = meta?.name || abbr || "State";
+  if (isCountyChamber(chamber)) return `${stateName} Counties`;
   const raw = state.chamberNamesByState.get(`${abbr}|${chamber}`) || "";
   if (raw) {
     if (abbr && raw.toUpperCase().startsWith(`${abbr} `)) {
@@ -1858,6 +2041,8 @@ async function ensureDistrictShapesLoaded() {
   }
 
   // Preload the other chamber in the background to reduce wait on chamber switch.
+  // The county file is only fetched when someone actually opens the county map.
+  if (isCountyChamber(chamber)) return;
   const other = chamber === "house" ? "senate" : "house";
   if (!state.geojsonByChamber[other]) {
     loadUrlZipToGeojson(AUTO_SHAPE_URLS[other]).then((geojson) => {
@@ -1876,7 +2061,7 @@ function indexDistrictFeaturesByState(chamber, geojson) {
 
 function isPlaceholderDistrictFeature(feature, chamber = state.chamber) {
   const props = feature?.properties || {};
-  const districtField = chamber === "house" ? "SLDLST" : "SLDUST";
+  const districtField = DISTRICT_FIELD[chamber] || "SLDLST";
   const rawDistrict = String(readProperty(props, districtField) || "").trim().toUpperCase();
   // TIGER legislative shapefiles include non-district placeholders like ZZZ.
   return rawDistrict === "ZZZ";
@@ -2003,7 +2188,8 @@ function renderDistrictLayerForSelectedState() {
     }
   ).addTo(map);
 
-  scheduleDistrictNumberLayerBuild(selectedFeatures);
+  // County names are in the hover; numbers would mean nothing there.
+  if (!isCountyChamber()) scheduleDistrictNumberLayerBuild(selectedFeatures);
   showActiveStateSidebar();
 }
 
@@ -2598,7 +2784,7 @@ function setDetailsTitle(text) {
 
 function selectedStateChamberHeader() {
   if (state.countyView) {
-    return `${state.selectedState?.name || state.selectedState?.abbr || "State"} — Counties`;
+    return `${state.selectedState?.name || state.selectedState?.abbr || "State"} — Counties vs. 2024`;
   }
   if (state.chronoMode) {
     const name = state.selectedState?.name || state.selectedState?.abbr || "State";
@@ -2660,16 +2846,16 @@ function stateChronoButtonsHtml() {
     `<button type="button" class="detail-chrono-btn${current === value ? " active-chrono" : ""}" data-state-chrono="${value}">${label}</button>`;
   return `
     <div class="detail-chrono-buttons state-chrono-buttons">
-      ${button("districts", "Districts")}
+      ${button("districts", isCountyChamber() ? "Counties" : "Districts")}
       ${button("daily", "Daily")}
       ${button("weekly", "Weekly")}
-      ${button("counties", "Counties")}
+      ${button("counties", "vs. 2024")}
     </div>
     ${state.countyView
       ? ""
       : state.chronoMode
         ? chronoOptionBoxesHtml(state.chronoMode, state.chronoCumulative, "state-chrono-cum", null)
-        : historyModeButtonsHtml()}
+        : isCountyChamber() ? "" : historyModeButtonsHtml()}
   `;
 }
 
@@ -2797,6 +2983,9 @@ function viewColumnDefs(view, { withHistory = false, chrono = false, statewide =
   // No columns at all for a state with no backfill — otherwise a historyMode
   // carried over from another state renders four columns of "—".
   if (!withHistory || historyModeFor({ chrono }) === "none" || !historyAvailableForSelectedState()) return cols;
+  // History is not rolled up by county, so a county-level table has no past
+  // cycles to show; the state's own Daily/Weekly tables still do.
+  if (!statewide && isCountyChamber()) return cols;
 
   // Each year opens with its own gap, and `cols` already starts with one, so
   // every group stays framed on both sides with no doubled separators.
@@ -2938,6 +3127,7 @@ function districtTableHtml() {
 }
 
 function stateChamberOverviewHtml() {
+  if (isCountyChamber()) return countyChamberOverviewHtml();
   return `
     ${statewideCardsHtml()}
     ${stateChronoButtonsHtml()}
@@ -4362,13 +4552,26 @@ function showDistrictDetailPanel(properties, joinInfo, rec, options = {}) {
 
 function districtTitle(properties, joinInfo) {
   const abbr = String(readProperty(properties, "STUSPS") || readProperty(properties, "STATE_ABBR") || state.selectedState?.abbr || "US").trim().toUpperCase();
+  if (isCountyChamber()) return `${countyFeatureName(properties)}, ${abbr}`;
   const district = displayDistrictId(joinInfo.rawDistrict, joinInfo.districtId);
   const chamberCode = state.chamber === "house" ? "HD" : "SD";
   return `${abbr} ${chamberCode}-${district}`;
 }
 
 function districtDetailHtml(properties, joinInfo, rec) {
-  const title = `District ${displayDistrictId(joinInfo.rawDistrict, joinInfo.districtId)}`;
+  const county = isCountyChamber();
+  const title = county
+    ? countyFeatureName(properties)
+    : `District ${displayDistrictId(joinInfo.rawDistrict, joinInfo.districtId)}`;
+
+  if (!rec && county) {
+    const presLine = countyPresLineHtml(joinInfo.key);
+    return `
+      <div class="detail-title detail-title-large">${escapeHtml(title)}</div>
+      <div class="detail-meta-muted">No 2026 ABEV data for this county in the feed yet.</div>
+      ${presLine ? `<div class="detail-meta">${presLine}</div>` : ""}
+    `;
+  }
 
   if (!rec) {
     const past = districtChronoSectionHtml(null, joinInfo.key);
@@ -4414,6 +4617,10 @@ function districtDetailHtml(properties, joinInfo, rec) {
   const returned = statTotals(rec, "returned");
   const ev = statTotals(rec, "ev");
   const rateLines = [];
+  if (county) {
+    const presLine = countyPresLineHtml(joinInfo.key);
+    if (presLine) rateLines.push(presLine);
+  }
   if (requested && returned && requested.total > 0) {
     rateLines.push(`AB return rate: <strong>${((returned.total / requested.total) * 100).toFixed(1)}%</strong>`);
   }
@@ -4504,10 +4711,14 @@ function hoverStatTableHtml(rec) {
 
 function popupHtml(properties, joinInfo, rec) {
   const title = `<div class="detail-title">${escapeHtml(districtTitle(properties, joinInfo))}</div>`;
+  const pres = isCountyChamber() ? countyPresFor(joinInfo.key) : null;
+  const presHtml = pres
+    ? `<div class="detail-meta">2024: <span class="${netClass(Number(pres.margin))}">${escapeHtml(marginLabel(Number(pres.margin)))}</span></div>`
+    : "";
   if (!rec) {
-    return `${title}<div class="detail-meta-muted">No ABEV data.</div>`;
+    return `${title}${presHtml}<div class="detail-meta-muted">No ABEV data.</div>`;
   }
-  return `${title}${hoverStatTableHtml(rec)}`;
+  return `${title}${presHtml}${hoverStatTableHtml(rec)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -5155,7 +5366,7 @@ function toFeatureCollection(parsed) {
 
 function extractJoinIds(properties = {}) {
   const stateFips = normalizeStateFips(readProperty(properties, "STATEFP"));
-  const districtField = state.chamber === "house" ? "SLDLST" : "SLDUST";
+  const districtField = DISTRICT_FIELD[state.chamber] || "SLDLST";
   const rawDistrict = readProperty(properties, districtField);
   const districtId = normalizeDistrictId(rawDistrict);
   return {
