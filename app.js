@@ -1,4 +1,4 @@
-import { requireAuth } from "./modules/auth.js?v=20261009b";
+import { requireAuth } from "./modules/auth.js?v=20261009c";
 import {
   ABEV_HISTORY_INDEX_URL,
   ABEV_INDEX_URL,
@@ -32,7 +32,7 @@ import {
   VIEW_BUTTON_LABELS,
   VIEW_CARD_LABELS,
   VIEW_MAP_STAT,
-} from "./modules/config.js?v=20261009b";
+} from "./modules/config.js?v=20261009c";
 import {
   details,
   detailsTitle,
@@ -47,15 +47,15 @@ import {
   targetDistrictsToggle,
   updatedBadge,
   upIn2026Toggle,
-} from "./modules/dom.js?v=20261009b";
-import { state } from "./modules/state.js?v=20261009b";
-import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261009b";
+} from "./modules/dom.js?v=20261009c";
+import { state } from "./modules/state.js?v=20261009c";
+import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261009c";
 
 if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20261009b";
+const BUILD_VERSION = "20261009c";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -1345,16 +1345,9 @@ function countyFipsFromJoinKey(joinKey) {
   return stateFips && countyFp ? `${stateFips}${countyFp}` : "";
 }
 
-// One county's 2024 margin and pace, for the table, the detail panel and the
-// hover. Pace needs the state rate, which countyComparison computes once per
-// render; callers pass its result in.
+// One county's 2024 presidential result, for the table, detail panel and hover.
 function countyPresFor(joinKey) {
   return state.countyPres.get(countyFipsFromJoinKey(joinKey)) || null;
-}
-
-function countyPaceFor(joinKey, cmp) {
-  const fips = countyFipsFromJoinKey(joinKey);
-  return cmp?.rows.find((r) => r.fips === fips) || null;
 }
 
 function countyFeatureName(properties = {}) {
@@ -1437,18 +1430,13 @@ function countyChamberOverviewHtml() {
   `;
 }
 
-// "2024: Trump +5.5 · 12% of the 2024 vote returned so far, +8% vs. state"
+// "2024 President: Trump +3.1 (65,171 votes)"
 function countyPresLineHtml(joinKey) {
   const pres = countyPresFor(joinKey);
   if (!pres) return "";
-  const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
-  const row = countyPaceFor(joinKey, countyComparison(abbr));
   const margin = Number(pres.margin);
   const marginHtml = `<span class="${netClass(margin)}">${escapeHtml(marginLabel(margin))}</span>`;
-  const pace = row
-    ? ` · ${escapeHtml(COUNTY_STAT_NOUN[mapStat()] || "ballots")}: <strong>${escapeHtml(formatRatePct(row.rate))}</strong> of the 2024 vote, <strong>${escapeHtml(formatPace(row.pace))}</strong> vs. state`
-    : "";
-  return `2024 President: <strong>${marginHtml}</strong> (${escapeHtml(formatCount(pres.total))} votes)${pace}`;
+  return `2024 President: <strong>${marginHtml}</strong> (${escapeHtml(formatCount(pres.total))} votes)`;
 }
 
 // ---------------------------------------------------------------------------
@@ -4626,11 +4614,6 @@ function districtDetailHtml(properties, joinInfo, rec) {
   }
   if (voted && ev && voted.total > 0) {
     rateLines.push(`Early vote share of total: <strong>${((ev.total / voted.total) * 100).toFixed(1)}%</strong>`);
-  }
-  // Why Total can exceed GOP + Dem + Swing in the table above.
-  const unmatched = statTotals(rec, mapStat())?.unm || 0;
-  if (unmatched > 0) {
-    rateLines.push(`${escapeHtml(STAT_LABELS[mapStat()])}: <strong>${escapeHtml(formatCount(unmatched))}</strong> from voters the model does not match, counted in Total but in no party column.`);
   }
 
   return `
