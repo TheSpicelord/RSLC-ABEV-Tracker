@@ -46,6 +46,7 @@ export const state = {
     county: new Map(),
   },
   countyFileIndex: [],
+  countyShapesPromise: null,
   countyChamberLoaded: new Set(),
   nationalByFips: new Map(),
   timelineByFips: new Map(),

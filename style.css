@@ -3494,3 +3494,13 @@ html.auth-pending main {
   color: #7e8b9a;
   text-align: center;
 }
+
+.county-dot {
+  cursor: pointer;
+}
+
+.county-dot-hover {
+  stroke: #ffffff;
+  stroke-width: 2;
+  stroke-opacity: 1;
+}

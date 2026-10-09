@@ -63,6 +63,7 @@ from daily_update import (
     ABBR_TO_NAME,
     BUCKETS,
     bucket_case_sql,
+    county_id,
     STATS,
     connect,
     load_config,
@@ -317,6 +318,8 @@ WITH scored AS (
         {hd_sql} AS hd,
         {sd_sql} AS sd,
         a.CongressionalDistrict AS cd,
+        -- County, exactly as daily_update.state_query derives it (see county_id).
+        CASE WHEN a.State = 'CT' THEN a.Juriscode ELSE LEFT(a.Juriscode, 5) END AS cty,
         a.RequestDate,
         a.ReturnDate,
         a.EarlyVoted,
@@ -328,15 +331,15 @@ WITH scored AS (
     WHERE a.State = ?{filter_sql}
 ),
 events AS (
-    SELECT hd, sd, cd, bucket, 'requested' AS stat, RequestDate AS event_date FROM scored WHERE RequestDate IS NOT NULL
+    SELECT hd, sd, cd, cty, bucket, 'requested' AS stat, RequestDate AS event_date FROM scored WHERE RequestDate IS NOT NULL
     UNION ALL
-    SELECT hd, sd, cd, bucket, 'returned', ReturnDate FROM scored WHERE ReturnDate IS NOT NULL
+    SELECT hd, sd, cd, cty, bucket, 'returned', ReturnDate FROM scored WHERE ReturnDate IS NOT NULL
     UNION ALL
-    SELECT hd, sd, cd, bucket, 'ev', EarlyVoted FROM scored WHERE EarlyVoted IS NOT NULL
+    SELECT hd, sd, cd, cty, bucket, 'ev', EarlyVoted FROM scored WHERE EarlyVoted IS NOT NULL
 )
-SELECT hd, sd, cd, bucket, stat, event_date, COUNT(*) AS n
+SELECT hd, sd, cd, cty, bucket, stat, event_date, COUNT(*) AS n
 FROM events
-GROUP BY hd, sd, cd, bucket, stat, event_date
+GROUP BY hd, sd, cd, cty, bucket, stat, event_date
 """
 
 
@@ -441,6 +444,7 @@ def pull_state_year(conn, table, abbr, model, ycfg):
     house = defaultdict(empty_stat_buckets)
     senate = defaultdict(empty_stat_buckets)
     cong = defaultdict(empty_stat_buckets)
+    county = defaultdict(empty_stat_buckets)
     statewide = empty_stat_buckets()
     timeline = {s: defaultdict(lambda: {b: 0 for b in BUCKETS}) for s in STATS}
 
@@ -450,8 +454,10 @@ def pull_state_year(conn, table, abbr, model, ycfg):
     house_tl = defaultdict(district_timeline_factory)
     senate_tl = defaultdict(district_timeline_factory)
     cong_tl = defaultdict(district_timeline_factory)
+    county_tl = defaultdict(district_timeline_factory)
+    state_fips = ABBR_TO_FIPS[abbr]
 
-    for hd, sd, cd, bucket, stat, event_date, n in rows:
+    for hd, sd, cd, cty, bucket, stat, event_date, n in rows:
         bucket = str(bucket or "").strip()
         stat = str(stat or "").strip()
         if bucket not in BUCKETS or stat not in STATS:
@@ -493,6 +499,12 @@ def pull_state_year(conn, table, abbr, model, ycfg):
         if cd_id:
             cong[cd_id][stat][bucket] += n
             cong_tl[cd_id][stat][date_key][bucket] += n
+        # County lines do not move between cycles, so unlike the legislative
+        # chambers there is no stale-geography question for a past year.
+        cty_id = county_id(cty, state_fips)
+        if cty_id:
+            county[cty_id][stat][bucket] += n
+            county_tl[cty_id][stat][date_key][bucket] += n
         statewide[stat][bucket] += n
         timeline[stat][date_key][bucket] += n
 
@@ -507,7 +519,7 @@ def pull_state_year(conn, table, abbr, model, ycfg):
         if made_d:
             print(f"  [{abbr}] +{len(made_d)} floterial districts aggregated from their base districts")
 
-    return house, senate, cong, statewide, timeline, house_tl, senate_tl, cong_tl
+    return house, senate, cong, statewide, timeline, house_tl, senate_tl, cong_tl, county, county_tl
 
 
 def timeline_rows(timeline_stat):
@@ -545,7 +557,7 @@ def build_year_outputs(year, results, updated):
     (see load_existing) — only the states in `results` are replaced."""
     out_dir = OUT_BASE / str(year)
     out_dir.mkdir(parents=True, exist_ok=True)
-    entry = {"house": [], "senate": [], "cong": []}
+    entry = {"house": [], "senate": [], "cong": [], "county": []}
 
     # Seed from disk, keyed so this run's states overwrite their own entries and
     # leave everyone else's alone.
@@ -555,10 +567,11 @@ def build_year_outputs(year, results, updated):
 
     for abbr in sorted(results):
         fips = ABBR_TO_FIPS[abbr]
-        house, senate, cong, statewide, timeline, house_tl, senate_tl, cong_tl = results[abbr]
+        (house, senate, cong, statewide, timeline,
+         house_tl, senate_tl, cong_tl, county, county_tl) = results[abbr]
 
         for chamber, dmap, tlmap in (("house", house, house_tl), ("senate", senate, senate_tl),
-                                     ("cong", cong, cong_tl)):
+                                     ("cong", cong, cong_tl), ("county", county, county_tl)):
             if not dmap:
                 continue
             out = {
@@ -613,7 +626,7 @@ def build_year_outputs(year, results, updated):
             # rebuilt by globbing this directory, so a stale file would otherwise
             # keep the year alive in the index even though it is gone from
             # national.json - a half-present state is worse than an absent one.
-            for chamber in ("house", "senate", "cong"):
+            for chamber in ("house", "senate", "cong", "county"):
                 stale = out_dir / f"{abbr.lower()}_{chamber}.json"
                 if stale.exists():
                     stale.unlink()
@@ -632,7 +645,7 @@ def build_year_outputs(year, results, updated):
 
     # The index lists whatever chamber files actually exist for the year, rather
     # than only the ones this run happened to write — the directory is the truth.
-    for chamber in ("house", "senate", "cong"):
+    for chamber in ("house", "senate", "cong", "county"):
         entry[chamber] = sorted(
             f"data/abev/history/{year}/{path.name}"
             for path in out_dir.glob(f"*_{chamber}.json")

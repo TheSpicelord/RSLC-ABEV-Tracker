@@ -1,4 +1,4 @@
-import { requireAuth } from "./modules/auth.js?v=20261009c";
+import { requireAuth } from "./modules/auth.js?v=20261009d";
 import {
   ABEV_HISTORY_INDEX_URL,
   ABEV_INDEX_URL,
@@ -32,7 +32,7 @@ import {
   VIEW_BUTTON_LABELS,
   VIEW_CARD_LABELS,
   VIEW_MAP_STAT,
-} from "./modules/config.js?v=20261009c";
+} from "./modules/config.js?v=20261009d";
 import {
   details,
   detailsTitle,
@@ -47,15 +47,15 @@ import {
   targetDistrictsToggle,
   updatedBadge,
   upIn2026Toggle,
-} from "./modules/dom.js?v=20261009c";
-import { state } from "./modules/state.js?v=20261009c";
-import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261009c";
+} from "./modules/dom.js?v=20261009d";
+import { state } from "./modules/state.js?v=20261009d";
+import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261009d";
 
 if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20261009c";
+const BUILD_VERSION = "20261009d";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -504,7 +504,10 @@ async function ensureHistoryData(abbr, chamber) {
       const data = await fetchJson(String(path));
       const fips = normalizeStateFips(data?.state_fips);
       for (const rec of Array.isArray(data?.districts) ? data.districts : []) {
-        const districtId = normalizeDistrictId(rec?.district_id);
+        // County files key by the 5-digit FIPS; the map joins on the last three.
+        const districtId = chamber === "county"
+          ? String(rec?.district_id || "").slice(2)
+          : normalizeDistrictId(rec?.district_id);
         if (!fips || !districtId) continue;
         map.set(makeJoinKey(fips, districtId), rec);
       }
@@ -614,6 +617,9 @@ function historyAvailableForSelectedState() {
 function historyYearAppliesToSelectedState(year, chamber = state.chamber) {
   const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
   if (!abbr) return true;
+  // Redistricting retires legislative lines, never county ones: a bare "WI"
+  // in HISTORY_STALE_LINES means both chambers, not the county map.
+  if (isCountyChamber(chamber)) return true;
   const stale = HISTORY_STALE_LINES[year] || [];
   return !stale.includes(abbr) && !stale.includes(`${abbr}:${chamber}`);
 }
@@ -628,7 +634,8 @@ function historyYearAppliesToSelectedState(year, chamber = state.chamber) {
 // even in the statewide Daily/Weekly tables, whose totals no redraw touches.
 function historyYearAppliesToDistrict(year, joinKey, chamber = state.chamber) {
   if (!joinKey) return true;
-  if (isCountyChamber(chamber)) return false;
+  // County lines do not move between cycles.
+  if (isCountyChamber(chamber)) return true;
   if (!historyYearAppliesToSelectedState(year, chamber)) return false;
   const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
   if (!abbr) return true;
@@ -1308,6 +1315,15 @@ function isCountyChamber(chamber = state.chamber) {
   return chamber === "county";
 }
 
+// Has the selected state been backfilled by county? (A subset of states only -
+// see CLAUDE.md; loaded by ensureHistoryData(abbr, "county").)
+function countyHistoryAvailable() {
+  const abbr = normalizeStateAbbr(state.selectedState?.abbr || "");
+  return historyYearsForSelectedState().some(
+    (year) => (state.historyByKey.get(`${year}|${abbr}|county`)?.size || 0) > 0
+  );
+}
+
 // Per-state county files are only fetched when a state is opened on the county
 // map; the index lists which exist.
 async function ensureCountyChamberData(abbr) {
@@ -1335,7 +1351,7 @@ function ensureChamberSupportData(abbr, chamber) {
   if (isCountyChamber(chamber)) {
     // Statewide past-cycle timelines still feed the Daily/Weekly tables, which
     // are the same in every chamber.
-    return Promise.all([ensureCountyChamberData(abbr), ensureCountyData(), ensureHistoryTimelines()]);
+    return Promise.all([ensureCountyChamberData(abbr), ensureCountyData(), ensureHistoryData(abbr, "county")]);
   }
   return Promise.all([ensureDeChamberData(abbr, chamber), ensureHistoryData(abbr, chamber)]);
 }
@@ -1361,7 +1377,7 @@ function countyChamberTableHtml() {
   const cmp = state.countyDataLoaded ? countyComparison(abbr) : null;
   const paceByFips = new Map((cmp?.rows || []).map((r) => [r.fips, r]));
   const dataMap = state.dataByChamber.county;
-  const cols = viewColumnDefs(state.abevView);
+  const cols = viewColumnDefs(state.abevView, { withHistory: true });
 
   let rows = (state.currentDistrictFeatures || []).map((feature) => {
     const joinInfo = extractJoinIds(feature.properties);
@@ -1379,6 +1395,14 @@ function countyChamberTableHtml() {
     if (key === "district") return row.label;
     if (key === "pres") return typeof row.margin === "number" ? row.margin : Number.NEGATIVE_INFINITY;
     if (key === "pace") return typeof row.pace === "number" ? row.pace : Number.NEGATIVE_INFINITY;
+    const histMatch = key.match(/^hist(\d{4})_([a-z]+?)(_margin)?$/);
+    if (histMatch) {
+      const totals = historyTotals(row.joinKey, Number(histMatch[1]), histMatch[2]);
+      if (!totals) return Number.NEGATIVE_INFINITY;
+      if (!histMatch[3]) return totals.total;
+      const netPct = netPctFromTotals(totals);
+      return typeof netPct === "number" ? netPct : Number.NEGATIVE_INFINITY;
+    }
     if (!row.rec) return Number.NEGATIVE_INFINITY;
     const isMargin = key.endsWith("_margin");
     const totals = statTotals(row.rec, isMargin ? key.slice(0, -"_margin".length) : key);
@@ -2022,6 +2046,13 @@ function chamberDisplayName(meta = state.selectedState, chamber = state.chamber)
 async function ensureDistrictShapesLoaded() {
   const chamber = state.chamber;
   if (state.geojsonByChamber[chamber]) return;
+  // One shared load for the county file: the comparison scatter may already
+  // have started it in the background (ensureCountyShapes).
+  if (isCountyChamber(chamber)) {
+    setStatus("Loading county shapes...");
+    await ensureCountyShapes();
+    return;
+  }
   setStatus("Loading district shapefiles...");
   state.geojsonByChamber[chamber] = await loadUrlZipToGeojson(AUTO_SHAPE_URLS[chamber]);
   if (state.geojsonByChamber[chamber]) {
@@ -2843,7 +2874,7 @@ function stateChronoButtonsHtml() {
       ? ""
       : state.chronoMode
         ? chronoOptionBoxesHtml(state.chronoMode, state.chronoCumulative, "state-chrono-cum", null)
-        : isCountyChamber() ? "" : historyModeButtonsHtml()}
+        : isCountyChamber() && !countyHistoryAvailable() ? "" : historyModeButtonsHtml()}
   `;
 }
 
@@ -2971,9 +3002,10 @@ function viewColumnDefs(view, { withHistory = false, chrono = false, statewide =
   // No columns at all for a state with no backfill — otherwise a historyMode
   // carried over from another state renders four columns of "—".
   if (!withHistory || historyModeFor({ chrono }) === "none" || !historyAvailableForSelectedState()) return cols;
-  // History is not rolled up by county, so a county-level table has no past
-  // cycles to show; the state's own Daily/Weekly tables still do.
-  if (!statewide && isCountyChamber()) return cols;
+  // County-level past cycles exist only for the states pulled by county
+  // (countyHistoryAvailable); elsewhere a county table shows none, while the
+  // state's own Daily/Weekly tables still do.
+  if (!statewide && isCountyChamber() && !countyHistoryAvailable()) return cols;
 
   // Each year opens with its own gap, and `cols` already starts with one, so
   // every group stays framed on both sides with no doubled separators.
@@ -4311,7 +4343,7 @@ function countyScatterHtml(rows, { national, stateRate }) {
       const color = r.margin >= 0 ? "#F82644" : "#257BF8";
       const tip = `${r.name}, ${r.abbr} — ${marginLabel(r.margin)} in 2024 — ${formatCount(r.ballots)} (${formatRatePct(r.rate)} of 2024 vote, ${formatPace(r.pace)} vs. state)`;
       const fill = clipped ? "none" : color;
-      return `<circle cx="${sx(r.margin).toFixed(1)}" cy="${cy.toFixed(1)}" r="${rad.toFixed(1)}" fill="${fill}" fill-opacity="0.42" stroke="${color}" stroke-opacity="0.8" stroke-width="0.8"><title>${escapeHtml(tip)}</title></circle>`;
+      return `<circle class="county-dot" data-county-fips="${escapeHtml(r.fips)}" data-tip="${escapeHtml(tip)}" cx="${sx(r.margin).toFixed(1)}" cy="${cy.toFixed(1)}" r="${rad.toFixed(1)}" fill="${fill}" fill-opacity="0.42" stroke="${color}" stroke-opacity="0.8" stroke-width="0.8"></circle>`;
     })
     .join("");
 
@@ -4364,7 +4396,7 @@ function countyScatterHtml(rows, { national, stateRate }) {
       ${national
         ? "Up = ahead of the county's own state rate. Dashed: each band's pooled pace."
         : `Up = more of the 2024 vote cast so far. Grey line: state rate (${escapeHtml(formatRatePct(stateRate))}). Dashed: each band.`}
-      Dot size = 2024 vote. Hover a dot for the county.
+      Dot size = 2024 vote. Hover a dot for the county; click to open it on the county map.
     </div>
   `;
 }
@@ -4461,6 +4493,7 @@ function countyNotesHtml(cmp, { national }) {
 }
 
 function countyPanelHtml({ national }) {
+  ensureCountyShapes();
   if (!state.countyDataLoaded) {
     return '<div class="loading-indicator">Loading county data...</div>';
   }
@@ -4512,6 +4545,79 @@ function showCountyView(options = {}) {
   };
   requestAnimationFrame(render);
   if (!state.countyDataLoaded) ensureCountyData().then(() => requestAnimationFrame(render));
+}
+
+// Scatter dots are live: hovering one names the county and outlines it on the
+// map, clicking opens it on the county map with its detail panel. The outline
+// needs county geometry even while the map is showing districts (or the
+// national view), so the county shapes load in the background as soon as a
+// comparison panel is drawn.
+async function ensureCountyShapes() {
+  if (state.geojsonByChamber.county) return state.geojsonByChamber.county;
+  if (!state.countyShapesPromise) {
+    state.countyShapesPromise = loadUrlZipToGeojson(AUTO_SHAPE_URLS.county).then((geojson) => {
+      if (geojson && !state.geojsonByChamber.county) {
+        state.geojsonByChamber.county = geojson;
+        indexDistrictFeaturesByState("county", geojson);
+      }
+      return state.geojsonByChamber.county;
+    });
+  }
+  return state.countyShapesPromise;
+}
+
+function countyFeatureForFips(fips) {
+  const byState = state.districtFeaturesByChamberState.county;
+  const list = byState?.get(String(fips).slice(0, 2)) || [];
+  return list.find((f) => String(readProperty(f.properties, "COUNTYFP") || "") === String(fips).slice(2)) || null;
+}
+
+function showCountyDotHover(dot) {
+  const tip = dot.getAttribute("data-tip");
+  if (tip) {
+    const el = schedTooltipEl();
+    el.textContent = tip;
+    el.hidden = false;
+    const r = dot.getBoundingClientRect();
+    const m = 8;
+    let left = r.left + r.width / 2 - el.offsetWidth / 2;
+    left = Math.max(m, Math.min(left, window.innerWidth - el.offsetWidth - m));
+    let top = r.top - el.offsetHeight - 8;
+    if (top < m) top = r.bottom + 8;
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+  }
+  dot.classList.add("county-dot-hover");
+  const feature = countyFeatureForFips(dot.dataset.countyFips || "");
+  if (feature) showDistrictHoverOutline(feature);
+}
+
+function hideCountyDotHover(dot) {
+  if (schedTipEl) schedTipEl.hidden = true;
+  dot?.classList.remove("county-dot-hover");
+  clearDistrictHoverOutline();
+}
+
+// Click on a dot: the county map for its state, with the county selected.
+async function openCountyFromScatter(fips) {
+  const stateFips = String(fips).slice(0, 2);
+  const entry = [...state.statesByKey.values()].find(({ meta }) => normalizeStateFips(meta?.fips) === stateFips);
+  if (!entry) return;
+  hideCountyDotHover(null);
+  state.countyView = false;
+  state.chronoMode = null;
+  const sameState = state.mode === "state" && normalizeStateFips(state.selectedState?.fips) === stateFips;
+  if (!sameState) {
+    state.chamber = "county";
+    state.districtSort = { key: null, direction: 0 };
+    await selectStateByKey(entry.meta.key);
+  } else if (state.chamber !== "county") {
+    await setChamber("county");
+  } else {
+    renderModeUi();
+    showActiveStateSidebar();
+  }
+  selectDistrictFromTableRow(makeJoinKey(stateFips, String(fips).slice(2)));
 }
 
 function setCountyView(on) {
@@ -4733,6 +4839,12 @@ function wireDetailsInteractions() {
     const targetEl = event.target instanceof Element ? event.target : null;
     if (!targetEl) return;
 
+    const dot = targetEl.closest(".county-dot");
+    if (dot) {
+      showCountyDotHover(dot);
+      return;
+    }
+
     // The tier button shares its row with the group's first district; hovering
     // it shouldn't highlight that district on the map.
     if (targetEl.closest(".target-tier-group-cell")) {
@@ -4759,6 +4871,12 @@ function wireDetailsInteractions() {
     const targetEl = event.target instanceof Element ? event.target : null;
     if (!targetEl) return;
 
+    const dot = targetEl.closest(".county-dot");
+    if (dot) {
+      hideCountyDotHover(dot);
+      return;
+    }
+
     const districtRow = targetEl.closest(".district-select-row[data-join-key]");
     if (districtRow) {
       const related = event.relatedTarget;
@@ -4778,6 +4896,12 @@ function wireDetailsInteractions() {
   details.addEventListener("click", async (event) => {
     const targetEl = event.target instanceof Element ? event.target : null;
     if (!targetEl) return;
+
+    const countyDot = targetEl.closest(".county-dot");
+    if (countyDot) {
+      await openCountyFromScatter(countyDot.dataset.countyFips || "");
+      return;
+    }
 
     const viewCard = targetEl.closest(".stat-card[data-view]");
     if (viewCard) {
