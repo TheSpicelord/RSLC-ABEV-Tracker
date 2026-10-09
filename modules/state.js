@@ -9,6 +9,14 @@ export const state = {
   chronoMode: null,
   chronoCumulative: false,
   detailChronoMode: "daily",
+  // State sidebar's Counties view (ABEV pace vs the 2024 presidential margin).
+  countyView: false,
+  countySort: { key: null, direction: 0 },
+  // County data (county_totals.json / county_pres_2024.json), loaded on first use.
+  countyDataLoaded: false,
+  countyDataPromise: null,
+  countyTotals: new Map(),
+  countyPres: new Map(),
   detailChronoCumulative: false,
   selectedState: null,
 

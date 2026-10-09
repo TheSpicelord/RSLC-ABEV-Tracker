@@ -1278,6 +1278,22 @@ def build_outputs(results, updated, refreshed_at, prune=False):
 
     states_out = [states_by_abbr[a] for a in sorted(states_by_abbr)]
 
+    # Every state's county totals in one small file (no timelines), for the
+    # national county comparison - loading 38 full *_county.json files would be
+    # ~4MB. Built from the per-state files on disk, so a partial run keeps the
+    # states it did not pull, and only states still on the site are included.
+    county_totals = {}
+    for abbr in sorted(states_by_abbr):
+        path = OUT_DIR / f"{abbr.lower()}_county.json"
+        if not path.exists():
+            continue
+        for d in json.loads(path.read_text(encoding="utf-8")).get("districts", []):
+            county_totals[d["district_id"]] = {"state": abbr, **{stat: d[stat] for stat in STATS}}
+    (OUT_DIR / "county_totals.json").write_text(
+        json.dumps({"updated": updated, "counties": county_totals}, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
     # Same reasoning for the index: list what is actually on disk, not just what
     # this run wrote, so a partial run cannot un-publish another state's files.
     for chamber in GEOGRAPHIES:
@@ -1303,6 +1319,7 @@ def build_outputs(results, updated, refreshed_at, prune=False):
                 "updated": updated,
                 **out_index,
                 "national": "data/abev/national.json",
+                "county_totals": "data/abev/county_totals.json",
                 "timeline": "data/abev/timeline.json",
             },
             indent=2,

@@ -1,4 +1,4 @@
-import { requireAuth } from "./modules/auth.js?v=20261005b";
+import { requireAuth } from "./modules/auth.js?v=20261009a";
 import {
   ABEV_HISTORY_INDEX_URL,
   ABEV_INDEX_URL,
@@ -32,7 +32,7 @@ import {
   VIEW_BUTTON_LABELS,
   VIEW_CARD_LABELS,
   VIEW_MAP_STAT,
-} from "./modules/config.js?v=20261005b";
+} from "./modules/config.js?v=20261009a";
 import {
   details,
   detailsTitle,
@@ -46,15 +46,15 @@ import {
   targetDistrictsToggle,
   updatedBadge,
   upIn2026Toggle,
-} from "./modules/dom.js?v=20261005b";
-import { state } from "./modules/state.js?v=20261005b";
-import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261005b";
+} from "./modules/dom.js?v=20261009a";
+import { state } from "./modules/state.js?v=20261009a";
+import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261009a";
 
 if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20261005b";
+const BUILD_VERSION = "20261009a";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -1396,7 +1396,9 @@ function wireEvents() {
 
 function showActiveStateSidebar(options = {}) {
   const passthrough = { preserveScroll: options.preserveScroll };
-  if (state.chronoMode) {
+  if (state.countyView) {
+    showCountyView(passthrough);
+  } else if (state.chronoMode) {
     showChronoView(passthrough);
   } else {
     showStateChamberOverview(passthrough);
@@ -1461,6 +1463,10 @@ function setAbevView(view) {
 
   if (state.mode === "national") {
     renderNationalOverview();
+    return;
+  }
+  if (state.countyView) {
+    showCountyView({ preserveScroll: true });
     return;
   }
   if (state.chronoMode) {
@@ -1742,6 +1748,7 @@ function focusOnState(meta, bounds) {
 function enterNationalView() {
   state.mode = "national";
   state.selectedState = null;
+  state.countyView = false;
   stateSelect.value = "";
   state.filteredDistrictJoinKeySet = null;
   clearDistrictLayer();
@@ -1769,6 +1776,12 @@ function renderNationalOverview() {
     wireDetailsInteractions();
     resetSidebarScroll();
   });
+  if (state.nationalTab === "counties" && !state.countyDataLoaded) {
+    ensureCountyData().then(() => {
+      if (state.mode !== "national" || state.nationalTab !== "counties" || renderToken !== state.detailsRenderToken) return;
+      details.innerHTML = nationalOverviewHtml();
+    });
+  }
 }
 
 function renderModeUi() {
@@ -1914,6 +1927,10 @@ function renderDistrictLayerForSelectedState() {
 
   const selectedAbbr = normalizeStateAbbr(state.selectedState?.abbr || "");
   if (state.chamber === "house" && selectedAbbr === "NE") {
+    if (state.countyView) {
+      showCountyView();
+      return;
+    }
     if (state.chronoMode) {
       showChronoView();
       return;
@@ -2288,12 +2305,27 @@ function selectDistrictFromTableRow(joinKey) {
 function nationalTabToggleHtml() {
   const btn = (value, label) =>
     `<button type="button" class="detail-chrono-btn${state.nationalTab === value ? " active-chrono" : ""}" data-national-tab="${value}">${label}</button>`;
-  return `<div class="detail-chrono-buttons national-tab-buttons">${btn("overview", "Overview")}${btn("schedule", "Schedule")}</div>`;
+  return `<div class="detail-chrono-buttons national-tab-buttons">${btn("overview", "Overview")}${btn("schedule", "Schedule")}${btn("counties", "Counties")}</div>`;
 }
 
 function nationalOverviewHtml() {
+  if (state.nationalTab === "counties") {
+    // The county tab reads the view cards' measure, so the cards come along.
+    return `${nationalTabToggleHtml()}${viewCardsHtml(nationalUsRecord())}<div class="detail-break"></div>${countyPanelHtml({ national: true })}`;
+  }
   const body = state.nationalTab === "schedule" ? nationalScheduleHtml() : nationalStatTableHtml();
   return `${nationalTabToggleHtml()}${body}`;
+}
+
+// National totals as one record, for the view cards on the national county tab.
+function nationalUsRecord() {
+  const rec = {};
+  for (const stat of ["requested", "returned", "ev"]) {
+    let buckets = { ...EMPTY_BUCKETS };
+    for (const r of state.nationalByFips.values()) buckets = addBuckets(buckets, bucketsFrom(r[stat]));
+    rec[stat] = buckets;
+  }
+  return rec;
 }
 
 // A cell in the Schedule table: the window text plus an optional circled-i. The
@@ -2565,6 +2597,9 @@ function setDetailsTitle(text) {
 }
 
 function selectedStateChamberHeader() {
+  if (state.countyView) {
+    return `${state.selectedState?.name || state.selectedState?.abbr || "State"} — Counties`;
+  }
   if (state.chronoMode) {
     const name = state.selectedState?.name || state.selectedState?.abbr || "State";
     return `${name} — ${chronoModeLabel(state.chronoMode, state.chronoCumulative)}`;
@@ -2620,7 +2655,7 @@ function viewCardsHtml(rec) {
 // view's own option box below it: past-cycle columns in the district table, or
 // period-vs-running totals in a chrono view.
 function stateChronoButtonsHtml() {
-  const current = state.chronoMode || "districts";
+  const current = state.countyView ? "counties" : state.chronoMode || "districts";
   const button = (value, label) =>
     `<button type="button" class="detail-chrono-btn${current === value ? " active-chrono" : ""}" data-state-chrono="${value}">${label}</button>`;
   return `
@@ -2628,10 +2663,13 @@ function stateChronoButtonsHtml() {
       ${button("districts", "Districts")}
       ${button("daily", "Daily")}
       ${button("weekly", "Weekly")}
+      ${button("counties", "Counties")}
     </div>
-    ${state.chronoMode
-      ? chronoOptionBoxesHtml(state.chronoMode, state.chronoCumulative, "state-chrono-cum", null)
-      : historyModeButtonsHtml()}
+    ${state.countyView
+      ? ""
+      : state.chronoMode
+        ? chronoOptionBoxesHtml(state.chronoMode, state.chronoCumulative, "state-chrono-cum", null)
+        : historyModeButtonsHtml()}
   `;
 }
 
@@ -3843,6 +3881,473 @@ function toggleSort(sortState, key) {
 }
 
 // ---------------------------------------------------------------------------
+// Counties: ABEV pace against the 2024 presidential margin
+//
+// Answers "are Trump or Harris counties returning ballots faster?". Each
+// county's 2026 count for the active view (requested / returned / early /
+// total) is divided by its 2024 presidential vote, so a big county and a small
+// one are on the same scale.
+//
+// Raw rates are only comparable WITHIN a state: mail rules differ so much
+// between states (California mails every voter a ballot) that a national pool
+// mostly measures which states Trump and Harris counties sit in. So every
+// county is also scored against its own state's rate ("vs. state"), and the
+// national view reads only that. Band figures are pooled, not averaged: a band's
+// pace is its ballots over the ballots its counties would have at their states'
+// rates, so a county counts in proportion to its 2024 vote.
+//
+// Data: data/abev/county_totals.json (daily_update.py, county = Juriscode's
+// state+county FIPS prefix) and data/county_pres_2024.json
+// (build_county_pres.py). A county missing from the feed is a county the
+// vendor has not loaded, not one with zero ballots, so it is left out and
+// counted in a note - California and Arizona both arrived partial.
+// ---------------------------------------------------------------------------
+
+const COUNTY_TOTALS_URL = "data/abev/county_totals.json";
+const COUNTY_PRES_URL = "data/county_pres_2024.json";
+// Alaska has no counties; its 2024 results are by state house district.
+const COUNTY_EXCLUDED_STATES = new Set(["AK"]);
+
+const COUNTY_BANDS = [
+  { key: "r20", label: "Trump +20 or more", lo: 20, hi: Infinity },
+  { key: "r0", label: "Trump +0–20", lo: 0, hi: 20 },
+  { key: "d0", label: "Harris +0–20", lo: -20, hi: 0 },
+  { key: "d20", label: "Harris +20 or more", lo: -Infinity, hi: -20 },
+];
+
+function countyBandFor(margin) {
+  // Trump bands include their lower edge (an exact tie reads as Trump +0).
+  return COUNTY_BANDS.find((b) => (b.key.startsWith("r") ? margin >= b.lo : margin > b.lo) && margin < b.hi)
+    || COUNTY_BANDS[COUNTY_BANDS.length - 1];
+}
+
+async function ensureCountyData() {
+  if (state.countyDataLoaded) return;
+  if (!state.countyDataPromise) {
+    state.countyDataPromise = Promise.all([fetchJson(COUNTY_TOTALS_URL), fetchJson(COUNTY_PRES_URL)])
+      .then(([totals, pres]) => {
+        state.countyTotals = new Map(Object.entries(totals?.counties || {}));
+        state.countyPres = new Map(Object.entries(pres?.counties || {}));
+        state.countyDataLoaded = true;
+      });
+  }
+  await state.countyDataPromise;
+}
+
+const COUNTY_STAT_NOUN = {
+  requested: "requests",
+  returned: "returned ballots",
+  ev: "early votes",
+  voted: "total votes (returned + early)",
+};
+
+// Every comparable county for one state (abbr) or all of them (null), under
+// the active view's stat. Returns the rows plus what was left out and why.
+function countyComparison(abbrFilter) {
+  const stat = mapStat();
+  const fipsToAbbr = new Map();
+  for (const rec of state.nationalByFips.values()) {
+    fipsToAbbr.set(normalizeStateFips(rec.state_fips), String(rec.state_abbr || "").toUpperCase());
+  }
+
+  const byState = new Map();
+  for (const [fips, rec] of state.countyTotals) {
+    const abbr = String(rec.state || "").toUpperCase();
+    if (abbrFilter && abbr !== abbrFilter) continue;
+    if (COUNTY_EXCLUDED_STATES.has(abbr)) continue;
+    const pres = state.countyPres.get(fips);
+    if (!pres || !pres.total) continue;
+    const totals = statTotals(rec, stat);
+    const row = {
+      fips,
+      abbr,
+      name: pres.name,
+      margin: Number(pres.margin),
+      presTotal: Number(pres.total),
+      ballots: totals ? totals.total : 0,
+    };
+    if (!byState.has(abbr)) byState.set(abbr, []);
+    byState.get(abbr).push(row);
+  }
+
+  const rows = [];
+  const stateRates = new Map();
+  const noStat = [];
+  for (const [abbr, list] of byState) {
+    const ballots = list.reduce((sum, r) => sum + r.ballots, 0);
+    const pres = list.reduce((sum, r) => sum + r.presTotal, 0);
+    // A state with none of this stat at all (no early voting yet, say) has no
+    // rate to compare against, so it sits this view out rather than read 0.
+    if (!ballots || !pres) {
+      noStat.push(abbr);
+      continue;
+    }
+    const stateRate = ballots / pres;
+    stateRates.set(abbr, stateRate);
+    for (const r of list) {
+      r.rate = r.ballots / r.presTotal;
+      r.expected = r.presTotal * stateRate;
+      r.pace = r.rate / stateRate - 1;
+      rows.push(r);
+    }
+  }
+
+  // Counties the 2024 file has but the feed does not (yet), per state shown.
+  const inFeed = new Set(state.countyTotals.keys());
+  const missing = new Map();
+  for (const fips of state.countyPres.keys()) {
+    const abbr = fipsToAbbr.get(fips.slice(0, 2));
+    if (!abbr || !stateRates.has(abbr) || inFeed.has(fips)) continue;
+    missing.set(abbr, (missing.get(abbr) || 0) + 1);
+  }
+  const totalsByState = new Map();
+  for (const r of rows) totalsByState.set(r.abbr, (totalsByState.get(r.abbr) || 0) + 1);
+
+  return { stat, rows, stateRates, missing, totalsByState, noStat };
+}
+
+// Pooled band figures: share of 2024 vote, and pace against the counties'
+// own state rates (ballots / expected - 1).
+function countyPool(rows) {
+  const ballots = rows.reduce((s, r) => s + r.ballots, 0);
+  const pres = rows.reduce((s, r) => s + r.presTotal, 0);
+  const expected = rows.reduce((s, r) => s + r.expected, 0);
+  return {
+    n: rows.length,
+    ballots,
+    pres,
+    rate: pres ? ballots / pres : null,
+    pace: expected ? ballots / expected - 1 : null,
+  };
+}
+
+function formatRatePct(rate) {
+  if (typeof rate !== "number" || !Number.isFinite(rate)) return "—";
+  const pct = rate * 100;
+  return `${pct < 10 ? pct.toFixed(1) : pct.toFixed(0)}%`;
+}
+
+function formatPace(pace) {
+  if (typeof pace !== "number" || !Number.isFinite(pace)) return "—";
+  const pct = pace * 100;
+  if (Math.abs(pct) < 0.5) return "Even";
+  return `${pct > 0 ? "+" : "−"}${Math.abs(pct).toFixed(0)}%`;
+}
+
+function paceCellHtml(pace) {
+  const cls = typeof pace !== "number" || Math.abs(pace) < 0.005 ? "" : pace > 0 ? " county-pace-up" : " county-pace-down";
+  return `<td class="county-num${cls}">${escapeHtml(formatPace(pace))}</td>`;
+}
+
+function marginLabel(margin) {
+  if (typeof margin !== "number" || !Number.isFinite(margin)) return "—";
+  if (Math.abs(margin) < 0.05) return "Even";
+  return `${margin > 0 ? "Trump" : "Harris"} +${Math.abs(margin).toFixed(1)}`;
+}
+
+function countyBandTableHtml(rows, { national }) {
+  const groups = [
+    ...COUNTY_BANDS.map((b) => ({ label: b.label, rows: rows.filter((r) => countyBandFor(r.margin) === b), cls: "" })),
+    { label: "All Trump counties", rows: rows.filter((r) => r.margin >= 0), cls: " county-band-total" },
+    { label: "All Harris counties", rows: rows.filter((r) => r.margin < 0), cls: " county-band-total" },
+  ];
+  const body = groups
+    .map((g) => {
+      const p = countyPool(g.rows);
+      return `
+        <tr class="county-band-row${g.cls}">
+          <td class="abev-name-cell">${escapeHtml(g.label)}</td>
+          <td class="county-num">${escapeHtml(formatCount(p.n))}</td>
+          <td class="county-num">${escapeHtml(formatCount(p.ballots))}</td>
+          ${national ? "" : `<td class="county-num">${escapeHtml(formatRatePct(p.rate))}</td>`}
+          ${paceCellHtml(p.n ? p.pace : null)}
+        </tr>
+      `;
+    })
+    .join("");
+  return `
+    <table class="abev-table county-band-table">
+      <thead>
+        <tr>
+          <th>2024 margin</th>
+          <th>Counties</th>
+          <th>2026</th>
+          ${national ? "" : "<th>% of '24 vote</th>"}
+          <th>vs. state</th>
+        </tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table>
+  `;
+}
+
+// Scatter: 2024 margin across, pace (or raw rate in a state view) up. Dot area
+// follows the 2024 vote; the dashed segments are each band's pooled figure.
+function countyScatterHtml(rows, { national, stateRate }) {
+  if (!rows.length) return "";
+  const W = 460;
+  const H = 260;
+  const pad = { l: 46, r: 12, t: 12, b: 34 };
+  const iw = W - pad.l - pad.r;
+  const ih = H - pad.t - pad.b;
+
+  const maxAbs = Math.max(20, ...rows.map((r) => Math.abs(r.margin)));
+  const xMax = Math.ceil(maxAbs / 20) * 20;
+  // Nationally the y value is a RATIO to the county's state rate, so it runs on
+  // a log2 scale: half the state rate sits as far below the line as double sits
+  // above it, and a county with no ballots yet does not drag the axis to
+  // minus infinity (it floors at 1/8). A state view plots the plain rate.
+  const paceToY = (pace) => Math.log2(Math.max(1 + pace, 0.125));
+  const yOf = (r) => (national ? paceToY(r.pace) : r.rate * 100);
+
+  // Clip the y range at the 2nd/98th percentiles so a few tiny counties with
+  // extreme ratios do not flatten everyone else; clipped dots draw hollow on
+  // the edge.
+  const ys = rows.map(yOf).sort((a, b) => a - b);
+  const q = (p) => ys[Math.min(ys.length - 1, Math.max(0, Math.round(p * (ys.length - 1))))];
+  const ref = national ? 0 : stateRate * 100;
+  let yLo;
+  let yHi;
+  if (national) {
+    yLo = Math.min(-1, Math.floor(q(0.02)));
+    yHi = Math.max(1, Math.ceil(q(0.98)));
+  } else {
+    yLo = Math.min(q(0.02), ref);
+    yHi = Math.max(q(0.98), ref);
+    const span = Math.max(yHi - yLo, 1);
+    yLo = Math.max(0, yLo - span * 0.08);
+    yHi += span * 0.08;
+  }
+
+  const sx = (m) => pad.l + ((m + xMax) / (2 * xMax)) * iw;
+  const sy = (v) => pad.t + (1 - (v - yLo) / (yHi - yLo)) * ih;
+  const maxPres = Math.max(...rows.map((r) => r.presTotal));
+
+  const dots = [...rows]
+    .sort((a, b) => b.presTotal - a.presTotal)
+    .map((r) => {
+      const v = yOf(r);
+      const clipped = v < yLo || v > yHi;
+      const cy = sy(Math.min(yHi, Math.max(yLo, v)));
+      const rad = 1.8 + 7 * Math.sqrt(r.presTotal / maxPres);
+      const color = r.margin >= 0 ? "#F82644" : "#257BF8";
+      const tip = `${r.name}, ${r.abbr} — ${marginLabel(r.margin)} in 2024 — ${formatCount(r.ballots)} (${formatRatePct(r.rate)} of 2024 vote, ${formatPace(r.pace)} vs. state)`;
+      const fill = clipped ? "none" : color;
+      return `<circle cx="${sx(r.margin).toFixed(1)}" cy="${cy.toFixed(1)}" r="${rad.toFixed(1)}" fill="${fill}" fill-opacity="0.42" stroke="${color}" stroke-opacity="0.8" stroke-width="0.8"><title>${escapeHtml(tip)}</title></circle>`;
+    })
+    .join("");
+
+  const bandLines = COUNTY_BANDS.map((b) => {
+    const p = countyPool(rows.filter((r) => countyBandFor(r.margin) === b));
+    if (!p.n) return "";
+    const v = national ? paceToY(p.pace) : p.rate * 100;
+    if (!(v >= yLo && v <= yHi)) return "";
+    const x1 = sx(Math.max(-xMax, b.lo));
+    const x2 = sx(Math.min(xMax, b.hi));
+    return `<line x1="${x1.toFixed(1)}" x2="${x2.toFixed(1)}" y1="${sy(v).toFixed(1)}" y2="${sy(v).toFixed(1)}" class="county-band-line" />`;
+  }).join("");
+
+  const xTicks = [];
+  for (let m = -xMax; m <= xMax; m += xMax / 2) xTicks.push(m);
+  const xTickHtml = xTicks
+    .map((m) => {
+      const label = m === 0 ? "Even" : `${m > 0 ? "R" : "D"}+${Math.abs(m)}`;
+      return `<text x="${sx(m).toFixed(1)}" y="${H - pad.b + 14}" class="county-axis-text" text-anchor="middle">${label}</text>`;
+    })
+    .join("");
+
+  // National ticks fall on whole doublings (-75%, -50%, Even, +100%, +300%).
+  const yTicks = national
+    ? Array.from({ length: yHi - yLo + 1 }, (_, i) => yLo + i)
+    : [0, 1, 2, 3].map((i) => yLo + ((yHi - yLo) * i) / 3);
+  const yTickHtml = yTicks
+    .map((v) => {
+      // The national floor (1/8 of the state rate) also holds every county
+      // with no ballots yet, so it is labelled as a floor, not a value.
+      const label = national
+        ? v === 0 ? "Even" : `${v <= -3 ? "≤ " : ""}${formatPace(2 ** v - 1)}`
+        : `${v.toFixed(v < 10 ? 1 : 0)}%`;
+      return `<line x1="${pad.l}" x2="${W - pad.r}" y1="${sy(v).toFixed(1)}" y2="${sy(v).toFixed(1)}" class="county-grid" />
+        <text x="${pad.l - 5}" y="${(sy(v) + 3).toFixed(1)}" class="county-axis-text" text-anchor="end">${label}</text>`;
+    })
+    .join("");
+
+  return `
+    <svg class="county-scatter" viewBox="0 0 ${W} ${H}" role="img" aria-label="County 2026 pace against 2024 presidential margin">
+      ${yTickHtml}
+      <line x1="${sx(0).toFixed(1)}" x2="${sx(0).toFixed(1)}" y1="${pad.t}" y2="${H - pad.b}" class="county-zero-line" />
+      <line x1="${pad.l}" x2="${W - pad.r}" y1="${sy(ref).toFixed(1)}" y2="${sy(ref).toFixed(1)}" class="county-ref-line" />
+      ${dots}
+      ${bandLines}
+      ${xTickHtml}
+      <text x="${(pad.l + iw / 2).toFixed(1)}" y="${H - 4}" class="county-axis-title" text-anchor="middle">2024 presidential margin</text>
+    </svg>
+    <div class="county-scatter-key">
+      ${national
+        ? "Up = ahead of the county's own state rate. Dashed: each band's pooled pace."
+        : `Up = more of the 2024 vote cast so far. Grey line: state rate (${escapeHtml(formatRatePct(stateRate))}). Dashed: each band.`}
+      Dot size = 2024 vote. Hover a dot for the county.
+    </div>
+  `;
+}
+
+function countyTableHtml(rows) {
+  const sorted = applySort(
+    [...rows].sort((a, b) => b.presTotal - a.presTotal),
+    state.countySort,
+    (r, key) => (key === "name" ? r.name : r[key]),
+  );
+  const head = (key, label) =>
+    `<th class="abev-sortable" data-sort-scope="county" data-sort-key="${key}">${label}${sortIndicator(state.countySort, key)}</th>`;
+  const body = sorted
+    .map((r) => `
+      <tr>
+        <td class="abev-name-cell">${escapeHtml(r.name.replace(/ (County|Parish|Planning Region)$/i, ""))}</td>
+        ${marginCellHtml(r.margin)}
+        <td class="county-num">${escapeHtml(formatCount(r.ballots))}</td>
+        <td class="county-num">${escapeHtml(formatRatePct(r.rate))}</td>
+        ${paceCellHtml(r.pace)}
+      </tr>
+    `)
+    .join("");
+  return `
+    <table class="abev-table county-table">
+      <thead>
+        <tr>
+          ${head("name", "County")}
+          ${head("margin", "'24 Pres")}
+          ${head("ballots", "2026")}
+          ${head("rate", "% of '24")}
+          ${head("pace", "vs. state")}
+        </tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table>
+  `;
+}
+
+// National: per state, how Trump counties are pacing against Harris counties.
+// Clicking a row opens that state's county view.
+function countyStateGapTableHtml(cmp) {
+  const rows = [];
+  for (const abbr of cmp.stateRates.keys()) {
+    const list = cmp.rows.filter((r) => r.abbr === abbr);
+    const trump = countyPool(list.filter((r) => r.margin >= 0));
+    const harris = countyPool(list.filter((r) => r.margin < 0));
+    if (!trump.n || !harris.n) continue;
+    const entry = [...state.statesByKey.values()].find(({ meta }) => normalizeStateAbbr(meta?.abbr || "") === abbr);
+    rows.push({ abbr, key: entry?.meta?.key || "", name: entry?.meta?.name || abbr, trump: trump.pace, harris: harris.pace, gap: trump.pace - harris.pace });
+  }
+  if (!rows.length) return "";
+  rows.sort((a, b) => b.gap - a.gap);
+  const body = rows
+    .map((r) => `
+      <tr class="target-row state-select-row" data-state-key="${escapeHtml(r.key)}" data-county-state="1">
+        <td class="abev-name-cell">${escapeHtml(r.name)}</td>
+        ${paceCellHtml(r.trump)}
+        ${paceCellHtml(r.harris)}
+        ${paceCellHtml(r.gap)}
+      </tr>
+    `)
+    .join("");
+  return `
+    <div class="detail-section-title centered-section-title">By State</div>
+    <div class="county-note">Each side's pace against its own state's rate. Gap above zero: Trump counties are ahead. Only states with counties on both sides.</div>
+    <table class="abev-table county-table">
+      <thead><tr><th>State</th><th>Trump cos.</th><th>Harris cos.</th><th>Gap</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  `;
+}
+
+function countyNotesHtml(cmp, { national }) {
+  const notes = [];
+  const missingTotal = [...cmp.missing.values()].reduce((s, n) => s + n, 0);
+  if (missingTotal) {
+    if (national) {
+      const list = [...cmp.missing.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([abbr, n]) => `${abbr} ${n}`)
+        .join(", ");
+      notes.push(`${formatCount(missingTotal)} counties have no 2026 data in the feed yet and are left out (${escapeHtml(list)}).`);
+    } else {
+      const shown = cmp.rows.length;
+      notes.push(`${missingTotal} of ${shown + missingTotal} counties have no 2026 data in the feed yet and are left out.`);
+    }
+  }
+  if (national && cmp.noStat.length) {
+    notes.push(`No ${escapeHtml(COUNTY_STAT_NOUN[cmp.stat] || "ballots")} yet in ${escapeHtml(cmp.noStat.sort().join(", "))}.`);
+  }
+  if (national) notes.push("Alaska has no counties and is not included.");
+  return notes.map((n) => `<div class="county-note">${n}</div>`).join("");
+}
+
+function countyPanelHtml({ national }) {
+  if (!state.countyDataLoaded) {
+    return '<div class="loading-indicator">Loading county data...</div>';
+  }
+  if (!state.countyPres.size || !state.countyTotals.size) {
+    return '<div class="loading-indicator">County data is not available.</div>';
+  }
+  const abbr = national ? null : normalizeStateAbbr(state.selectedState?.abbr || "");
+  if (!national && COUNTY_EXCLUDED_STATES.has(abbr)) {
+    return '<div class="county-note">Alaska has no counties, so there is no county comparison. Its 2024 results are reported by state house district.</div>';
+  }
+  const cmp = countyComparison(abbr);
+  const noun = COUNTY_STAT_NOUN[cmp.stat] || "ballots";
+  if (!cmp.rows.length) {
+    return `<div class="county-note">No county-level ${escapeHtml(noun)} for ${national ? "any state" : "this state"} yet.</div>`;
+  }
+  const stateRate = national ? null : cmp.stateRates.get(abbr);
+  const intro = national
+    ? `2026 ${escapeHtml(noun)} by county, scored against each county's own state: "vs. state" is how far ahead of or behind its state's rate a county is, as a share of its 2024 presidential vote. Comparing within states keeps different mail-voting rules out of it.`
+    : `2026 ${escapeHtml(noun)} as a share of each county's 2024 presidential vote. Statewide: ${escapeHtml(formatRatePct(stateRate))}; "vs. state" is a county's rate against that.`;
+  return `
+    <div class="county-note county-intro">${intro} Switch the cards above to change the measure.</div>
+    ${countyBandTableHtml(cmp.rows, { national })}
+    ${countyScatterHtml(cmp.rows, { national, stateRate })}
+    ${countyNotesHtml(cmp, { national })}
+    ${national ? countyStateGapTableHtml(cmp) : `<div class="detail-section-title centered-section-title">Counties</div>${countyTableHtml(cmp.rows)}`}
+  `;
+}
+
+function countyViewHtml() {
+  return `
+    ${statewideCardsHtml()}
+    ${stateChronoButtonsHtml()}
+    <div class="detail-break"></div>
+    ${dataAsOfNoteHtml()}
+    ${countyPanelHtml({ national: false })}
+  `;
+}
+
+function showCountyView(options = {}) {
+  if (state.mode !== "state" || !state.selectedState || !state.countyView) return;
+  state.detailsRenderToken += 1;
+  const renderToken = state.detailsRenderToken;
+  setDetailsTitle(selectedStateChamberHeader());
+  const render = () => {
+    if (state.mode !== "state" || !state.countyView || renderToken !== state.detailsRenderToken) return;
+    details.innerHTML = countyViewHtml();
+    wireDetailsInteractions();
+    if (!options.preserveScroll) resetSidebarScroll();
+  };
+  requestAnimationFrame(render);
+  if (!state.countyDataLoaded) ensureCountyData().then(() => requestAnimationFrame(render));
+}
+
+function setCountyView(on) {
+  if (state.mode !== "state") return;
+  state.countyView = on;
+  if (on) state.chronoMode = null;
+  state.countySort = { key: null, direction: 0 };
+  clearSelectedDistrict();
+  map.closePopup();
+  renderModeUi();
+  showActiveStateSidebar();
+}
+
+// ---------------------------------------------------------------------------
 // Sidebar: district detail
 // ---------------------------------------------------------------------------
 
@@ -4089,7 +4594,7 @@ function wireDetailsInteractions() {
     const natTabBtn = targetEl.closest("[data-national-tab]");
     if (natTabBtn) {
       const tab = String(natTabBtn.dataset.nationalTab || "");
-      if ((tab === "overview" || tab === "schedule") && tab !== state.nationalTab) {
+      if ((tab === "overview" || tab === "schedule" || tab === "counties") && tab !== state.nationalTab) {
         state.nationalTab = tab;
         renderNationalOverview();
       }
@@ -4114,8 +4619,22 @@ function wireDetailsInteractions() {
     const stateChronoBtn = targetEl.closest("[data-state-chrono]");
     if (stateChronoBtn) {
       const value = String(stateChronoBtn.dataset.stateChrono || "");
+      if (value === "counties") {
+        if (!state.countyView) setCountyView(true);
+        return;
+      }
       if (value === "districts" || CHRONO_MODE_LABELS[value]) {
-        setChronoMode(value === "districts" ? null : value);
+        const mode = value === "districts" ? null : value;
+        if (state.countyView) {
+          state.countyView = false;
+          // setChronoMode ignores a mode it is already in, so leaving the
+          // county view for that same mode has to redraw by itself.
+          if (state.chronoMode === mode) {
+            showActiveStateSidebar();
+            return;
+          }
+        }
+        setChronoMode(mode);
       }
       return;
     }
@@ -4179,6 +4698,10 @@ function wireDetailsInteractions() {
         toggleSort(state.districtSort, key);
         details.innerHTML = stateChamberOverviewHtml();
       }
+      if (key && scope === "county" && state.mode === "state" && state.countyView) {
+        toggleSort(state.countySort, key);
+        details.innerHTML = countyViewHtml();
+      }
       return;
     }
 
@@ -4190,6 +4713,7 @@ function wireDetailsInteractions() {
 
     const stateRow = targetEl.closest(".state-select-row[data-state-key]");
     if (stateRow) {
+      if (stateRow.dataset.countyState) state.countyView = true;
       await selectStateByKey(stateRow.dataset.stateKey || "");
     }
   });
