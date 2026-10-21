@@ -1,7 +1,8 @@
 {
-  "updated": "2026-10-20",
+  "updated": "2026-10-21",
   "house": [
     "data/abev/ak_house.json",
+    "data/abev/ar_house.json",
     "data/abev/az_house.json",
     "data/abev/ca_house.json",
     "data/abev/co_house.json",
@@ -37,12 +38,14 @@
     "data/abev/tn_house.json",
     "data/abev/tx_house.json",
     "data/abev/va_house.json",
+    "data/abev/wa_house.json",
     "data/abev/wi_house.json",
     "data/abev/wv_house.json",
     "data/abev/wy_house.json"
   ],
   "senate": [
     "data/abev/ak_senate.json",
+    "data/abev/ar_senate.json",
     "data/abev/az_senate.json",
     "data/abev/ca_senate.json",
     "data/abev/co_senate.json",
@@ -79,11 +82,13 @@
     "data/abev/tn_senate.json",
     "data/abev/tx_senate.json",
     "data/abev/va_senate.json",
+    "data/abev/wa_senate.json",
     "data/abev/wi_senate.json",
     "data/abev/wv_senate.json",
     "data/abev/wy_senate.json"
   ],
   "cong": [
+    "data/abev/ar_cong.json",
     "data/abev/az_cong.json",
     "data/abev/ca_cong.json",
     "data/abev/co_cong.json",
@@ -117,11 +122,13 @@
     "data/abev/tn_cong.json",
     "data/abev/tx_cong.json",
     "data/abev/va_cong.json",
+    "data/abev/wa_cong.json",
     "data/abev/wi_cong.json",
     "data/abev/wv_cong.json"
   ],
   "county": [
     "data/abev/ak_county.json",
+    "data/abev/ar_county.json",
     "data/abev/az_county.json",
     "data/abev/ca_county.json",
     "data/abev/co_county.json",
@@ -159,6 +166,7 @@
     "data/abev/tx_county.json",
     "data/abev/va_county.json",
     "data/abev/vt_county.json",
+    "data/abev/wa_county.json",
     "data/abev/wi_county.json",
     "data/abev/wv_county.json",
     "data/abev/wy_county.json"
