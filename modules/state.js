@@ -87,6 +87,8 @@ export const state = {
   districtNumberLayer: null,
   districtNumberBuildToken: 0,
   districtLabelRefreshToken: 0,
+  countyLabelLayer: null,
+  countyLabelBuildToken: 0,
   selectedDistrictLayer: null,
   selectedDistrictOutlineLayer: null,
   hoverDistrictLayer: null,

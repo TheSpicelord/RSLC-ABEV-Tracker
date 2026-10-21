@@ -1,4 +1,4 @@
-import { requireAuth } from "./modules/auth.js?v=20261009d";
+import { requireAuth } from "./modules/auth.js?v=20261021a";
 import {
   ABEV_HISTORY_INDEX_URL,
   ABEV_INDEX_URL,
@@ -32,7 +32,7 @@ import {
   VIEW_BUTTON_LABELS,
   VIEW_CARD_LABELS,
   VIEW_MAP_STAT,
-} from "./modules/config.js?v=20261009d";
+} from "./modules/config.js?v=20261021a";
 import {
   details,
   detailsTitle,
@@ -47,15 +47,15 @@ import {
   targetDistrictsToggle,
   updatedBadge,
   upIn2026Toggle,
-} from "./modules/dom.js?v=20261009d";
-import { state } from "./modules/state.js?v=20261009d";
-import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261009d";
+} from "./modules/dom.js?v=20261021a";
+import { state } from "./modules/state.js?v=20261021a";
+import { ABEV_SCHEDULE, ABEV_SCHEDULE_LABEL } from "./modules/schedule.js?v=20261021a";
 
 if (AUTH_ENABLED) {
   await requireAuth(AUTH_WORKER_URL);
 }
 
-const BUILD_VERSION = "20261009d";
+const BUILD_VERSION = "20261021a";
 
 function withCacheBust(url) {
   const text = String(url || "").trim();
@@ -1567,6 +1567,7 @@ function wireEvents() {
 
   map.on("zoomend", () => {
     refreshDistrictNumberLabels();
+    refreshCountyLabels();
   });
 
   map.on("popupopen", () => {
@@ -2207,8 +2208,9 @@ function renderDistrictLayerForSelectedState() {
     }
   ).addTo(map);
 
-  // County names are in the hover; numbers would mean nothing there.
-  if (!isCountyChamber()) scheduleDistrictNumberLayerBuild(selectedFeatures);
+  // Counties get name labels instead of numbers, which would mean nothing there.
+  if (isCountyChamber()) scheduleCountyLabelBuild(selectedFeatures);
+  else scheduleDistrictNumberLayerBuild(selectedFeatures);
   showActiveStateSidebar();
 }
 
@@ -2230,6 +2232,7 @@ function clearDistrictLayer() {
     state.districtLayer = null;
   }
   clearDistrictNumberLayer();
+  clearCountyLabelLayer();
   state.selectedDistrictLayer = null;
   hideChamberOverviewButton();
   clearDistrictHoverOutline();
@@ -5429,6 +5432,241 @@ function pointInRing(pt, ring) {
     if (intersect) inside = !inside;
   }
   return inside;
+}
+
+// ---------------------------------------------------------------------------
+// County name labels (county map only)
+// ---------------------------------------------------------------------------
+// Placement is worked out once per county, not once per zoom. Web Mercator
+// scales uniformly with zoom, so the geometry is projected to zoom-0 pixels and,
+// for a short ladder of label sizes, we record the LOWEST spot inside the county
+// where a label that size fits (the name sits just above the bottom border).
+// A zoom then only picks a rung and sets a font size - no polygon work - and a
+// pan costs nothing, since the markers are anchored in lat/lng. Plans are cached
+// on the feature, so returning to a state is free too.
+
+const COUNTY_LABEL_FONT_FAMILY = '"Bahnschrift Condensed", "Bahnschrift", "Segoe UI", sans-serif';
+const COUNTY_LABEL_MIN_PX = 7;
+const COUNTY_LABEL_LINE_EM = 1.05;
+const COUNTY_LABEL_SCANLINES = 64;
+// Fractions of the largest size that fits. Smaller rungs fit nearer the bottom.
+const COUNTY_LABEL_LADDER = [1, 0.7, 0.5, 0.35, 0.25, 0.17, 0.12];
+let countyLabelMeasureCtx = null;
+
+// Font size the labels aim for at a zoom: small, growing a little as you zoom in.
+function countyLabelTargetPx(zoom) {
+  return Math.max(9, Math.min(13, 9 + (zoom - 8)));
+}
+
+function countyLabelEmWidth(text) {
+  if (!countyLabelMeasureCtx) countyLabelMeasureCtx = document.createElement("canvas").getContext("2d");
+  countyLabelMeasureCtx.font = `700 100px ${COUNTY_LABEL_FONT_FAMILY}`;
+  return countyLabelMeasureCtx.measureText(text).width / 100;
+}
+
+// One line, plus a two-line wrap for multi-word names (split nearest the middle).
+function countyLabelLayouts(name) {
+  const layouts = [{ lines: [name] }];
+  const words = name.split(" ");
+  if (words.length > 1) {
+    let best = null;
+    for (let i = 1; i < words.length; i += 1) {
+      const lines = [words.slice(0, i).join(" "), words.slice(i).join(" ")];
+      const w = Math.max(...lines.map(countyLabelEmWidth));
+      if (!best || w < best.w) best = { lines, w };
+    }
+    layouts.push({ lines: best.lines });
+  }
+  for (const layout of layouts) {
+    // A little side padding so a label never touches the border.
+    layout.emW = Math.max(...layout.lines.map(countyLabelEmWidth)) + 0.3;
+    layout.emH = layout.lines.length * COUNTY_LABEL_LINE_EM;
+  }
+  return layouts;
+}
+
+// Interior x-intervals of the county along evenly spaced horizontal lines, in
+// zoom-0 pixels. Every ring goes in (outer, holes, every part of a multipolygon),
+// so even-odd crossing gives the true interior.
+function countyScanlines(geometry) {
+  const polys = geometry?.type === "Polygon" ? [geometry.coordinates] : geometry?.type === "MultiPolygon" ? geometry.coordinates : [];
+  const rings = [];
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const poly of polys) {
+    for (const ring of poly || []) {
+      const pts = [];
+      for (const c of ring || []) {
+        const p = map.project([c[1], c[0]], 0);
+        pts.push(p);
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+      if (pts.length >= 3) rings.push(pts);
+    }
+  }
+  if (!rings.length || !(maxY > minY)) return null;
+  const dy = (maxY - minY) / COUNTY_LABEL_SCANLINES;
+  const lines = [];
+  for (let i = 0; i < COUNTY_LABEL_SCANLINES; i += 1) {
+    const y = minY + (i + 0.5) * dy;
+    const xs = [];
+    for (const pts of rings) {
+      for (let a = 0, b = pts.length - 1; a < pts.length; b = a, a += 1) {
+        const pa = pts[a];
+        const pb = pts[b];
+        if (pa.y > y !== pb.y > y) xs.push(pa.x + ((y - pa.y) * (pb.x - pa.x)) / (pb.y - pa.y));
+      }
+    }
+    xs.sort((p, q) => p - q);
+    const spans = [];
+    for (let k = 0; k + 1 < xs.length; k += 2) spans.push([xs[k], xs[k + 1]]);
+    lines.push({ y, spans });
+  }
+  return { lines, dy, cx: (minX + maxX) / 2, width: maxX - minX, height: maxY - minY };
+}
+
+function intersectSpans(a, b) {
+  const out = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    const lo = Math.max(a[i][0], b[j][0]);
+    const hi = Math.min(a[i][1], b[j][1]);
+    if (hi > lo) out.push([lo, hi]);
+    if (a[i][1] < b[j][1]) i += 1;
+    else j += 1;
+  }
+  return out;
+}
+
+// Center of a w x h box whose bottom rests on scanline `bottom`, as close to the
+// county's middle as the interior allows - or null if it does not fit there.
+function countyBoxAt(scan, bottom, w, h) {
+  const span = Math.max(1, Math.ceil(h / scan.dy));
+  if (bottom - span + 1 < 0) return null;
+  let spans = scan.lines[bottom].spans;
+  for (let i = bottom - 1; i > bottom - span && spans.length; i -= 1) spans = intersectSpans(spans, scan.lines[i].spans);
+  let best = null;
+  for (const [lo, hi] of spans) {
+    if (hi - lo < w) continue;
+    const x = Math.min(Math.max(scan.cx, lo + w / 2), hi - w / 2);
+    if (!best || Math.abs(x - scan.cx) < Math.abs(best.x - scan.cx)) best = { x };
+  }
+  if (!best) return null;
+  return { x: best.x, y: scan.lines[bottom].y - h / 2 };
+}
+
+// Lowest fit for a box, scanning up from the bottom (y grows southward).
+function countyLowestBox(scan, w, h) {
+  for (let bottom = scan.lines.length - 1; bottom >= 0; bottom -= 1) {
+    const at = countyBoxAt(scan, bottom, w, h);
+    if (at) return at;
+  }
+  return null;
+}
+
+// Per layout: the largest size (zoom-0 px per em) that fits anywhere, then the
+// lowest anchor for each rung of the ladder below it.
+function buildCountyLabelPlan(feature) {
+  const name = String(readProperty(feature.properties, "NAME") || "").trim();
+  if (!name) return null;
+  const scan = countyScanlines(feature.geometry);
+  if (!scan) return null;
+  const layouts = [];
+  for (const layout of countyLabelLayouts(name)) {
+    let lo = 0;
+    let hi = Math.min(scan.width / layout.emW, scan.height / layout.emH);
+    for (let iter = 0; iter < 14; iter += 1) {
+      const mid = (lo + hi) / 2;
+      if (countyLowestBox(scan, layout.emW * mid, layout.emH * mid)) lo = mid;
+      else hi = mid;
+    }
+    if (!(lo > 0)) continue;
+    const rungs = [];
+    for (const f of COUNTY_LABEL_LADDER) {
+      const s = lo * f;
+      const at = countyLowestBox(scan, layout.emW * s, layout.emH * s);
+      if (at) rungs.push({ s, latlng: map.unproject([at.x, at.y], 0) });
+    }
+    if (rungs.length) layouts.push({ lines: layout.lines, maxS: lo, rungs });
+  }
+  return layouts.length ? { layouts } : null;
+}
+
+function scheduleCountyLabelBuild(features) {
+  clearCountyLabelLayer();
+  const token = state.countyLabelBuildToken;
+  const group = L.layerGroup().addTo(map);
+  state.countyLabelLayer = group;
+  const list = [...(features || [])];
+  // Plans are built a slice per frame so a big state (Texas: 254 counties)
+  // never blocks the page; each label appears as soon as its plan exists.
+  const step = (start) => {
+    if (token !== state.countyLabelBuildToken) return;
+    const zoom = map.getZoom();
+    const end = Math.min(list.length, start + 24);
+    for (let i = start; i < end; i += 1) {
+      const feature = list[i];
+      if (feature.__countyLabelPlan === undefined) feature.__countyLabelPlan = buildCountyLabelPlan(feature);
+      if (!feature.__countyLabelPlan) continue;
+      const marker = L.marker(feature.__countyLabelPlan.layouts[0].rungs[0].latlng, {
+        pane: "districtNumberPane",
+        interactive: false,
+        keyboard: false,
+        icon: L.divIcon({ className: "county-name-label-wrap", html: "", iconSize: [0, 0] }),
+      });
+      marker.__countyPlan = feature.__countyLabelPlan;
+      marker.__countyLabelHtml = "";
+      marker.addTo(group);
+      placeCountyLabel(marker, zoom);
+    }
+    if (end < list.length) requestAnimationFrame(() => step(end));
+  };
+  requestAnimationFrame(() => step(0));
+}
+
+function clearCountyLabelLayer() {
+  state.countyLabelBuildToken += 1;
+  if (state.countyLabelLayer) {
+    map.removeLayer(state.countyLabelLayer);
+    state.countyLabelLayer = null;
+  }
+}
+
+function refreshCountyLabels() {
+  if (!state.countyLabelLayer) return;
+  const zoom = map.getZoom();
+  state.countyLabelLayer.eachLayer((marker) => placeCountyLabel(marker, zoom));
+}
+
+// Pure arithmetic: pick the layout that shows the name largest (one line wins a
+// tie), then the lowest rung that still holds that size.
+function placeCountyLabel(marker, zoom) {
+  const plan = marker.__countyPlan;
+  const scale = map.getZoomScale(zoom, 0);
+  const target = countyLabelTargetPx(zoom);
+  let pick = null;
+  for (const layout of plan.layouts) {
+    const px = Math.min(target, layout.maxS * scale);
+    if (!pick || px > pick.px + 0.5) pick = { layout, px };
+  }
+  let html = "";
+  if (pick && pick.px >= COUNTY_LABEL_MIN_PX) {
+    const need = pick.px / scale;
+    const rungs = pick.layout.rungs;
+    let rung = rungs[0];
+    for (const r of rungs) if (r.s >= need) rung = r;
+    const px = Math.round(pick.px * 2) / 2;
+    const text = pick.layout.lines.map((line) => escapeHtml(line)).join("<br>");
+    html = `<span class="county-name-label" style="font-size:${px}px">${text}</span>`;
+    if (!marker.getLatLng().equals(rung.latlng)) marker.setLatLng(rung.latlng);
+  }
+  if (html !== marker.__countyLabelHtml) {
+    marker.setIcon(L.divIcon({ className: "county-name-label-wrap", html, iconSize: [0, 0] }));
+    marker.__countyLabelHtml = html;
+  }
 }
 
 // ---------------------------------------------------------------------------
