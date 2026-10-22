@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-21",
+  "updated": "2026-10-22",
   "house": [
     "data/abev/ak_house.json",
     "data/abev/ar_house.json",
@@ -15,6 +15,7 @@
     "data/abev/il_house.json",
     "data/abev/in_house.json",
     "data/abev/ks_house.json",
+    "data/abev/la_house.json",
     "data/abev/ma_house.json",
     "data/abev/md_house.json",
     "data/abev/me_house.json",
@@ -58,6 +59,7 @@
     "data/abev/il_senate.json",
     "data/abev/in_senate.json",
     "data/abev/ks_senate.json",
+    "data/abev/la_senate.json",
     "data/abev/ma_senate.json",
     "data/abev/md_senate.json",
     "data/abev/me_senate.json",
@@ -100,6 +102,7 @@
     "data/abev/il_cong.json",
     "data/abev/in_cong.json",
     "data/abev/ks_cong.json",
+    "data/abev/la_cong.json",
     "data/abev/ma_cong.json",
     "data/abev/md_cong.json",
     "data/abev/me_cong.json",
@@ -141,6 +144,7 @@
     "data/abev/il_county.json",
     "data/abev/in_county.json",
     "data/abev/ks_county.json",
+    "data/abev/la_county.json",
     "data/abev/ma_county.json",
     "data/abev/md_county.json",
     "data/abev/me_county.json",
