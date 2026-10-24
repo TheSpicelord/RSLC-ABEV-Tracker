@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-21",
+  "updated": "2026-10-24",
   "years": {
     "2022": {
       "house": [
@@ -134,10 +134,13 @@
       ],
       "county": [
         "data/abev/history/2022/fl_county.json",
+        "data/abev/history/2022/ga_county.json",
         "data/abev/history/2022/ia_county.json",
         "data/abev/history/2022/mi_county.json",
         "data/abev/history/2022/mn_county.json",
         "data/abev/history/2022/nc_county.json",
+        "data/abev/history/2022/nj_county.json",
+        "data/abev/history/2022/nv_county.json",
         "data/abev/history/2022/oh_county.json",
         "data/abev/history/2022/pa_county.json",
         "data/abev/history/2022/tx_county.json",
@@ -284,10 +287,13 @@
       ],
       "county": [
         "data/abev/history/2024/fl_county.json",
+        "data/abev/history/2024/ga_county.json",
         "data/abev/history/2024/ia_county.json",
         "data/abev/history/2024/mi_county.json",
         "data/abev/history/2024/mn_county.json",
         "data/abev/history/2024/nc_county.json",
+        "data/abev/history/2024/nj_county.json",
+        "data/abev/history/2024/nv_county.json",
         "data/abev/history/2024/oh_county.json",
         "data/abev/history/2024/pa_county.json",
         "data/abev/history/2024/tx_county.json",
@@ -308,6 +314,9 @@
       "cong": [
         "data/abev/history/2025/nj_cong.json",
         "data/abev/history/2025/va_cong.json"
+      ],
+      "county": [
+        "data/abev/history/2025/nj_county.json"
       ],
       "national": "data/abev/history/2025/national.json",
       "timeline": "data/abev/history/2025/timeline.json"
