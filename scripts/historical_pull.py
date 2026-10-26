@@ -62,6 +62,7 @@ from daily_update import (
     ABBR_TO_FIPS,
     ABBR_TO_NAME,
     BUCKETS,
+    ballot_date_cols_sql,
     bucket_case_sql,
     county_id,
     STATS,
@@ -295,7 +296,7 @@ def table_for_year(year):
     return f"dbo.General_Absentees_{year}"
 
 
-def historical_query(table, model, has_election_type_filter, regid_col="RNC_RegID"):
+def historical_query(table, model, has_election_type_filter, regid_col="RNC_RegID", year=None):
     """One aggregate query per state: counts by district triple, stat, bucket, date.
 
     Mirrors daily_update.state_query but against a historical table and with an
@@ -320,9 +321,7 @@ WITH scored AS (
         a.CongressionalDistrict AS cd,
         -- County, exactly as daily_update.state_query derives it (see county_id).
         CASE WHEN a.State = 'CT' THEN a.Juriscode ELSE LEFT(a.Juriscode, 5) END AS cty,
-        a.RequestDate,
-        a.ReturnDate,
-        a.EarlyVoted,
+        {ballot_date_cols_sql(model, year)},
         {bucket_case_sql(model)} AS bucket
     FROM {table} a
     LEFT JOIN {model['model_table']} m
@@ -437,7 +436,8 @@ def pull_state_year(conn, table, abbr, model, ycfg):
     params = [abbr]
     if has_filter:
         params.append(ycfg["election_type_filter"].format(abbr=abbr))
-    cursor.execute(historical_query(table, model, has_filter, ycfg.get("regid_col", "RNC_RegID")), params)
+    cursor.execute(historical_query(table, model, has_filter, ycfg.get("regid_col", "RNC_RegID"),
+                                    election_day.year), params)
     rows = cursor.fetchall()
     print(f"  [{abbr}] {len(rows):,} aggregate rows returned.")
 

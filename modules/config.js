@@ -322,6 +322,9 @@ export const STATE_DATA_NOTES = {
     { chambers: ["house"], text: "House subdistricts rebuilt from the voter file; 85-92% attribution in the 18 subdivided districts." },
   ],
   "25": [{ years: [2022], text: "Massachusetts is absent from the 2022 feed entirely." }],
+  "26": [
+    { text: "Michigan's feed reports early in-person votes as absentee returns. During early voting (from 10/24; 10/26 in 2024), a ballot requested and issued the same day and returned that day or the next is counted as an early vote instead (97% of the state's official 2024 early vote)." },
+  ],
   "28": [{ years: [2022], text: "Mississippi is absent from the 2022 feed entirely." }],
   "29": [{ text: "Requests only; Missouri's feed carries no return or early-vote records." }],
   "30": [

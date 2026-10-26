@@ -192,6 +192,20 @@ STATE_MODELS = {
             "WHEN m.Framework = 'Dem' THEN 'dem' "
             "ELSE 'toss' END"  # 'Pers' and unmatched -> toss
         ),
+        # Michigan's feed files early in-person votes as absentee returns (EarlyVoted
+        # is never set). They are recognisable: request and ballot-sent fall on the
+        # same day and the "return" the same day or the next, where a mail ballot was
+        # requested weeks earlier. From the first day of statewide early voting such
+        # a row is counted as an early vote and not as a request or return - see
+        # ballot_date_cols_sql(). Checked against 2024: 1,157,234 matches inside the
+        # 10/26-11/3 window vs the state's official 1,214,444 early votes (95%),
+        # and 1-8% of returns on the days before it (in-person absentee at clerks).
+        # Keyed by election year, (first day, last day) of statewide early voting -
+        # the second Saturday before the election through the Sunday before it. The
+        # cap matters: the same pattern on Monday and Election Day is clerk's-office
+        # absentee and same-day registration (33k such rows in 2024), not early
+        # voting. Years not listed are untouched.
+        "eip_window": {2024: ("2024-10-26", "2024-11-03"), 2026: ("2026-10-24", "2026-11-01")},
     },
     # Alaska has its own statewide DSP model (Sullivan vs Peltola, the 2026 U.S.
     # Senate race): framework = 'Sullivan' -> rep, 'Peltola' -> dem, everything
@@ -953,6 +967,26 @@ def connect(cfg):
     return pyodbc.connect(conn_str, timeout=30)
 
 
+def ballot_date_cols_sql(model, year):
+    """SELECT expressions for RequestDate / ReturnDate / EarlyVoted.
+
+    Plain columns, except for a state whose feed files early in-person votes as
+    absentee returns ("eip_window", Michigan): there a same-day request+send with a
+    return that day or the next, inside the year's early-voting window, moves from
+    requested/returned to early vote. Shared by state_query and
+    historical_pull.historical_query so 2026 and the backfill agree."""
+    window = (model.get("eip_window") or {}).get(year)
+    if not window:
+        return "a.RequestDate, a.ReturnDate, a.EarlyVoted"
+    start, end = window
+    eip = (f"(a.ReturnDate >= '{start}' AND a.ReturnDate < DATEADD(day, 1, '{end}') "
+           "AND CAST(a.RequestDate AS date) = CAST(a.BallotSentDate AS date) "
+           "AND DATEDIFF(day, a.BallotSentDate, a.ReturnDate) BETWEEN 0 AND 1)")
+    return (f"CASE WHEN {eip} THEN NULL ELSE a.RequestDate END AS RequestDate, "
+            f"CASE WHEN {eip} THEN NULL ELSE a.ReturnDate END AS ReturnDate, "
+            f"CASE WHEN {eip} THEN COALESCE(a.EarlyVoted, a.ReturnDate) ELSE a.EarlyVoted END AS EarlyVoted")
+
+
 def state_query(model):
     """One aggregate query per state: counts by district triple + county, stat, bucket, event date.
 
@@ -987,9 +1021,7 @@ WITH scored AS (
         -- Connecticut keeps the whole town code: its counties were replaced by
         -- planning regions, which only the town can be mapped to (county_id).
         CASE WHEN a.State = 'CT' THEN a.Juriscode ELSE LEFT(a.Juriscode, 5) END AS cty,
-        a.RequestDate,
-        a.ReturnDate,
-        a.EarlyVoted,
+        {ballot_date_cols_sql(model, DEFAULT_ELECTION_DAY.year)},
         {bucket_case_sql(model)} AS bucket
     FROM {table} a
     LEFT JOIN {model['model_table']} m
@@ -1372,8 +1404,13 @@ def state_watermark(conn, abbr):
         abbr, GENERAL_ELECTION_TYPE.format(abbr=abbr),
     )
     n, req, ret, ev = cur.fetchone()
-    return {"n": int(n or 0), "req": req, "ret": ret, "ev": ev,
-            "model": model["model_table"]}
+    wm = {"n": int(n or 0), "req": req, "ret": ret, "ev": ev,
+          "model": model["model_table"]}
+    # A change to the early-vote rule changes the output just as a model swap does.
+    eip = (model.get("eip_window") or {}).get(DEFAULT_ELECTION_DAY.year)
+    if eip:
+        wm["eip_window"] = list(eip)
+    return wm
 
 
 def load_watermarks():
