@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-26",
+  "updated": "2026-10-27",
   "years": {
     "2022": {
       "house": [
@@ -133,6 +133,7 @@
         "data/abev/history/2022/wv_cong.json"
       ],
       "county": [
+        "data/abev/history/2022/az_county.json",
         "data/abev/history/2022/fl_county.json",
         "data/abev/history/2022/ga_county.json",
         "data/abev/history/2022/ia_county.json",
@@ -286,6 +287,7 @@
         "data/abev/history/2024/wv_cong.json"
       ],
       "county": [
+        "data/abev/history/2024/az_county.json",
         "data/abev/history/2024/fl_county.json",
         "data/abev/history/2024/ga_county.json",
         "data/abev/history/2024/ia_county.json",
