@@ -62,6 +62,7 @@ from daily_update import (
     ABBR_TO_FIPS,
     ABBR_TO_NAME,
     BUCKETS,
+    ab_bucket_sql,
     ballot_date_cols_sql,
     bucket_case_sql,
     county_id,
@@ -330,9 +331,9 @@ WITH scored AS (
     WHERE a.State = ?{filter_sql}
 ),
 events AS (
-    SELECT hd, sd, cd, cty, bucket, 'requested' AS stat, RequestDate AS event_date FROM scored WHERE RequestDate IS NOT NULL
+    SELECT hd, sd, cd, cty, {ab_bucket_sql(model)} AS bucket, 'requested' AS stat, RequestDate AS event_date FROM scored WHERE RequestDate IS NOT NULL
     UNION ALL
-    SELECT hd, sd, cd, cty, bucket, 'returned', ReturnDate FROM scored WHERE ReturnDate IS NOT NULL
+    SELECT hd, sd, cd, cty, {ab_bucket_sql(model)}, 'returned', ReturnDate FROM scored WHERE ReturnDate IS NOT NULL
     UNION ALL
     SELECT hd, sd, cd, cty, bucket, 'ev', EarlyVoted FROM scored WHERE EarlyVoted IS NOT NULL
 )

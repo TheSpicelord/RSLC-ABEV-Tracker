@@ -98,6 +98,15 @@ def bucket_case_sql(model):
     0.1% in 2026. They are still ballots, so they stay in every total; they just
     belong to no party bucket."""
     return f"CASE WHEN m.{model['join_col']} IS NULL THEN 'unm' ELSE {model['bucket_sql']} END"
+
+
+def ab_bucket_sql(model):
+    """Bucket for the absentee events (requested / returned). A state can send its
+    Swing voters to a party when they vote absentee (`ab_toss_as`, MI only) while
+    the same voters stay Swing when they vote early in person. Unmatched voters
+    are 'unm', not 'toss', so they are never moved."""
+    party = model.get("ab_toss_as")
+    return f"CASE WHEN bucket = 'toss' THEN '{party}' ELSE bucket END" if party else "bucket"
 # Everything dated before the 2026 ABEV window opens folds into one "Earlier"
 # row. States publish permanent-absentee list signups (PA ~938k, IL ~444k) and
 # occasional garbage dates all year, and each distinct day was becoming its own
@@ -206,6 +215,10 @@ STATE_MODELS = {
         # absentee and same-day registration (33k such rows in 2024), not early
         # voting. Years not listed are untouched.
         "eip_window": {2024: ("2024-10-26", "2024-11-03"), 2026: ("2026-10-24", "2026-11-01")},
+        # Swing ('Pers') voters who vote absentee count as Dem (Daniel, 2026-10-29);
+        # in-person early voters stay Swing. Applies to requests and returns, every
+        # cycle - see ab_bucket_sql().
+        "ab_toss_as": "dem",
     },
     # Alaska has its own statewide DSP model (Sullivan vs Peltola, the 2026 U.S.
     # Senate race): framework = 'Sullivan' -> rep, 'Peltola' -> dem, everything
@@ -1030,9 +1043,9 @@ WITH scored AS (
     WHERE a.State = ? AND a.ElectionType = ? {extra_where}
 ),
 events AS (
-    SELECT hd, sd, cd, cty, bucket, 'requested' AS stat, RequestDate AS event_date FROM scored WHERE RequestDate IS NOT NULL
+    SELECT hd, sd, cd, cty, {ab_bucket_sql(model)} AS bucket, 'requested' AS stat, RequestDate AS event_date FROM scored WHERE RequestDate IS NOT NULL
     UNION ALL
-    SELECT hd, sd, cd, cty, bucket, 'returned', ReturnDate FROM scored WHERE ReturnDate IS NOT NULL
+    SELECT hd, sd, cd, cty, {ab_bucket_sql(model)}, 'returned', ReturnDate FROM scored WHERE ReturnDate IS NOT NULL
     UNION ALL
     SELECT hd, sd, cd, cty, bucket, 'ev', EarlyVoted FROM scored WHERE EarlyVoted IS NOT NULL
 )
@@ -1410,6 +1423,8 @@ def state_watermark(conn, abbr):
     eip = (model.get("eip_window") or {}).get(DEFAULT_ELECTION_DAY.year)
     if eip:
         wm["eip_window"] = list(eip)
+    if model.get("ab_toss_as"):
+        wm["ab_toss_as"] = model["ab_toss_as"]
     return wm
 
 
