@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-30",
+  "updated": "2026-10-31",
   "house": [
     "data/abev/ak_house.json",
     "data/abev/ar_house.json",
@@ -10,6 +10,7 @@
     "data/abev/de_house.json",
     "data/abev/fl_house.json",
     "data/abev/ga_house.json",
+    "data/abev/hi_house.json",
     "data/abev/ia_house.json",
     "data/abev/id_house.json",
     "data/abev/il_house.json",
@@ -56,6 +57,7 @@
     "data/abev/de_senate.json",
     "data/abev/fl_senate.json",
     "data/abev/ga_senate.json",
+    "data/abev/hi_senate.json",
     "data/abev/ia_senate.json",
     "data/abev/id_senate.json",
     "data/abev/il_senate.json",
@@ -101,6 +103,7 @@
     "data/abev/ct_cong.json",
     "data/abev/fl_cong.json",
     "data/abev/ga_cong.json",
+    "data/abev/hi_cong.json",
     "data/abev/ia_cong.json",
     "data/abev/id_cong.json",
     "data/abev/il_cong.json",
@@ -145,6 +148,7 @@
     "data/abev/de_county.json",
     "data/abev/fl_county.json",
     "data/abev/ga_county.json",
+    "data/abev/hi_county.json",
     "data/abev/ia_county.json",
     "data/abev/id_county.json",
     "data/abev/il_county.json",
