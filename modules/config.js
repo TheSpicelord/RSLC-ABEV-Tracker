@@ -314,6 +314,7 @@ export const STATE_DATA_NOTES = {
     { chambers: ["senate"], text: "Senate district is blank on 2-4% of records, missing from the senate rollup only." },
   ],
   "21": [
+    { text: "2026 is early in-person votes in Jefferson County only, from the county's voter list matched to the voter file. Past cycles are statewide, so they do not compare." },
     { years: [2024], text: "Kentucky is absent from the 2024 feed entirely." },
     { years: [2022], text: "All 2022 records share one placeholder date; totals are sound, daily and trend views are not." },
   ],

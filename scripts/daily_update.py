@@ -39,6 +39,8 @@ Date handling:
 
 import argparse
 import configparser
+import csv
+import hashlib
 import json
 import re
 import subprocess
@@ -476,6 +478,11 @@ STATE_MODELS = {
         "model_table": NATIONAL_MODEL_TABLE,
         "join_col": "dt_regid",
         "bucket_sql": NATIONAL_BUCKET_SQL,
+        # Kentucky is not in the 2026 feed. Jefferson County's early-voter list
+        # (2026-11-02, 56,618 voters) stands in for it - see EXTERNAL_EV_DIR. Every
+        # voter on the list is Jefferson's, so all count in county 21111 even when
+        # the voter file has them elsewhere (~130 moved) or not at all (1,594).
+        "external_ev": {"file": "ky.csv", "county": "21111"},
     },
     "TN": {
         "model_table": NATIONAL_MODEL_TABLE,
@@ -900,6 +907,93 @@ def model_for(abbr):
     }
 
 
+# Early-vote lists that arrive outside the vendor feed, one CSV per state named
+# by STATE_MODELS[abbr]["external_ev"]["file"]: a header row, then
+# `voter_id,date` (state voter ID as in Voterfile_2026.StateVoterID, ISO vote
+# date). GITIGNORED - these are voter-level records and never go in the repo;
+# scripts/external_ev_import.py writes them from the spreadsheet a county sends.
+# A state with a list is published whether or not the feed carries it, and the
+# list replaces the feed for that state.
+EXTERNAL_EV_DIR = PROJECT_ROOT / "scripts" / "external_ev"
+
+
+def external_ev_path(abbr):
+    """The state's external early-vote list, or None if it has none on this machine."""
+    spec = (STATE_MODELS.get(abbr) or {}).get("external_ev")
+    if not spec:
+        return None
+    path = EXTERNAL_EV_DIR / spec["file"]
+    return path if path.exists() else None
+
+
+def external_ev_states():
+    return sorted(a for a in STATE_MODELS if external_ev_path(a))
+
+
+def read_external_ev(path):
+    """[(voter_id, date)] from an external list. A voter listed twice keeps their
+    earliest date, so they count once."""
+    first = {}
+    with path.open(encoding="utf-8", newline="") as fh:
+        reader = csv.reader(fh)
+        next(reader, None)
+        for row in reader:
+            if len(row) < 2 or not row[0].strip():
+                continue
+            vid = row[0].strip()
+            day = date.fromisoformat(row[1].strip()) if row[1].strip() else None
+            if vid not in first or (day and (first[vid] is None or day < first[vid])):
+                first[vid] = day
+    return list(first.items())
+
+
+def external_ev_query(model):
+    """Same columns as state_query, for a list of early voters held in #ext.
+
+    Districts come from the voter file, matched on the state voter ID; a voter it
+    cannot find still counts statewide (and in the list's county, if it has one)
+    as 'unm'. The ROW_NUMBER keeps one voter-file row per ID should the file
+    ever carry a duplicate (Jefferson's list had none)."""
+    return f"""
+WITH vf AS (
+    SELECT v.StateVoterID, v.RNC_Regid, v.CountyFIPS,
+           v.StateLegLowerDistrict, v.StateLegUpperDistrict, v.CongressionalDistrict,
+           ROW_NUMBER() OVER (PARTITION BY v.StateVoterID ORDER BY v.RNC_Regid) AS rn
+    FROM dbo.Voterfile_2026 v JOIN #ext e ON e.vid = v.StateVoterID
+    WHERE v.State = ?
+),
+scored AS (
+    SELECT vf.StateLegLowerDistrict AS hd, vf.StateLegUpperDistrict AS sd,
+           vf.CongressionalDistrict AS cd,
+           COALESCE(?, ? + RIGHT('000' + LTRIM(RTRIM(vf.CountyFIPS)), 3)) AS cty,
+           e.vdate AS event_date,
+           {bucket_case_sql(model)} AS bucket
+    FROM #ext e
+    LEFT JOIN vf ON vf.StateVoterID = e.vid AND vf.rn = 1
+    LEFT JOIN {model['model_table']} m
+        ON m.{model['join_col']} = CONVERT(varchar(36), vf.RNC_Regid)
+)
+SELECT hd, sd, cd, cty, bucket, 'ev' AS stat, event_date, COUNT(*) AS n
+FROM scored
+GROUP BY hd, sd, cd, cty, bucket, event_date
+"""
+
+
+def fetch_external_ev(cursor, abbr, model):
+    """Load the state's list into a session temp table and run external_ev_query."""
+    voters = read_external_ev(external_ev_path(abbr))
+    print(f"[{abbr}] external early-vote list: {len(voters):,} voters")
+    cursor.execute("DROP TABLE IF EXISTS #ext")
+    cursor.execute("CREATE TABLE #ext (vid varchar(20) NOT NULL PRIMARY KEY, vdate date NULL)")
+    cursor.fast_executemany = True
+    cursor.executemany("INSERT INTO #ext VALUES (?, ?)", voters)
+    county = model["external_ev"].get("county")
+    cursor.execute(external_ev_query(model), abbr, county, ABBR_TO_FIPS[abbr])
+    rows = cursor.fetchall()
+    cursor.execute("DROP TABLE #ext")
+    return rows
+
+
 def feed_states(conn):
     """Every state with general-election rows in the 2026 feed, alphabetical.
     Abbreviations the site cannot place (no FIPS) are reported and skipped."""
@@ -1147,10 +1241,14 @@ def pull_state(conn, abbr, today):
     model = model_for(abbr)
     print(f"[{abbr}] running aggregate query (model: {model['model_table']}) ...")
     cursor = conn.cursor()
-    cursor.execute(state_query(model), abbr, GENERAL_ELECTION_TYPE.format(abbr=abbr))
-    rows = cursor.fetchall()
+    external = external_ev_path(abbr) is not None
+    if external:
+        rows = fetch_external_ev(cursor, abbr, model)
+    else:
+        cursor.execute(state_query(model), abbr, GENERAL_ELECTION_TYPE.format(abbr=abbr))
+        rows = cursor.fetchall()
     print(f"[{abbr}] {len(rows):,} aggregate rows returned.")
-    if not rows:
+    if not rows and not external:
         cursor.execute(
             f"SELECT ElectionType, COUNT(*) FROM {model.get('abev_table', ABEV_TABLE)} "
             f"a WHERE a.State = ? GROUP BY ElectionType", abbr)
@@ -1405,6 +1503,11 @@ def state_watermark(conn, abbr):
     JSON built from the old model - which is exactly what would have happened to
     WI when it moved to RSLC_WI_Exchange_20260819."""
     model = model_for(abbr)
+    # An external list is fingerprinted by its contents; the feed is not read.
+    ext = external_ev_path(abbr)
+    if ext:
+        return {"external_ev": hashlib.sha256(ext.read_bytes()).hexdigest(),
+                "model": model["model_table"]}
     table = model.get("abev_table", ABEV_TABLE)
     extra_where = model.get("extra_where", "")
     cur = conn.cursor()
@@ -1571,6 +1674,14 @@ def main():
                 # Never publish an empty site off a feed query that came back blank.
                 sys.exit("The feed returned no general-election states - nothing written.")
             print(f"{len(states)} states in the feed: {', '.join(states)}")
+            # External lists join the run, so a full run never prunes them.
+            for abbr in external_ev_states():
+                if abbr in states:
+                    print(f"[{abbr}] ** now in the feed, but its external list still replaces it "
+                          f"- remove STATE_MODELS['{abbr}']['external_ev'] to use the feed.")
+                else:
+                    states.append(abbr)
+                    print(f"[{abbr}] published from its external early-vote list.")
         for abbr in states:
             wm = state_watermark(probe, abbr)
             fresh_wm[abbr] = wm
